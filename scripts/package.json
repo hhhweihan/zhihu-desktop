@@ -1,0 +1,10 @@
+{
+  "name": "zhihu-desktop-scripts",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.0",
+    "baoyu-chrome-cdp": "file:./vendor/baoyu-chrome-cdp",
+    "marked": "^15.0.0"
+  }
+}

@@ -1,35 +1,101 @@
-import Versions from './components/Versions'
-import electronLogo from './assets/electron.svg'
+// src/renderer/src/App.tsx
+import { useState, useEffect } from 'react'
+import Onboarding from './screens/Onboarding'
+import WriteScreen from './screens/WriteScreen'
+import ReviewScreen from './screens/ReviewScreen'
+import PublishScreen from './screens/PublishScreen'
+import SettingsScreen from './screens/SettingsScreen'
+import EdgeSetupModal from './components/EdgeSetupModal'
 
-function App(): React.JSX.Element {
-  const ipcHandle = (): void => window.electron.ipcRenderer.send('ping')
+type Screen = 'onboarding' | 'write' | 'review' | 'publish' | 'settings'
 
-  return (
-    <>
-      <img alt="logo" className="logo" src={electronLogo} />
-      <div className="creator">Powered by electron-vite</div>
-      <div className="text">
-        Build an Electron app with <span className="react">React</span>
-        &nbsp;and <span className="ts">TypeScript</span>
-      </div>
-      <p className="tip">
-        Please try pressing <code>F12</code> to open the devTool
-      </p>
-      <div className="actions">
-        <div className="action">
-          <a href="https://electron-vite.org/" target="_blank" rel="noreferrer">
-            Documentation
-          </a>
-        </div>
-        <div className="action">
-          <a target="_blank" rel="noreferrer" onClick={ipcHandle}>
-            Send IPC
-          </a>
-        </div>
-      </div>
-      <Versions></Versions>
-    </>
-  )
+const HISTORY_KEY = 'zhihu-article-history'
+
+function loadHistory(): ArticleHistory[] {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') } catch { return [] }
 }
 
-export default App
+function saveHistory(items: ArticleHistory[]) {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, 50)))
+}
+
+export default function App() {
+  const [screen, setScreen] = useState<Screen>('onboarding')
+  const [articleMdPath, setArticleMdPath] = useState('')
+  const [articleTitle, setArticleTitle] = useState('')
+  const [showEdgeModal, setShowEdgeModal] = useState(false)
+  const [pendingPublish, setPendingPublish] = useState(false)
+
+  useEffect(() => {
+    window.electronAPI.loadApiKey().then((key) => {
+      if (key) setScreen('write')
+    })
+  }, [])
+
+  function handleArticleReady(mdPath: string, title: string) {
+    setArticleMdPath(mdPath)
+    setArticleTitle(title)
+    const hist = loadHistory()
+    const entry: ArticleHistory = { id: Date.now().toString(), title, mdPath, createdAt: Date.now() }
+    saveHistory([entry, ...hist])
+    setScreen('review')
+  }
+
+  async function handleGoPublish() {
+    const ok = await window.electronAPI.checkEdge()
+    if (!ok) {
+      setPendingPublish(true)
+      setShowEdgeModal(true)
+    } else {
+      setScreen('publish')
+    }
+  }
+
+  function handleEdgeReady() {
+    setShowEdgeModal(false)
+    if (pendingPublish) {
+      setPendingPublish(false)
+      setScreen('publish')
+    }
+  }
+
+  const showSettingsBtn = screen === 'write' || screen === 'review' || screen === 'publish'
+
+  return (
+    <div>
+      {showSettingsBtn && (
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={() => setScreen('settings')}
+          style={{ position: 'fixed', top: 12, right: 16, zIndex: 100 }}
+        >
+          ⚙ 设置
+        </button>
+      )}
+
+      {screen === 'onboarding' && <Onboarding onComplete={() => setScreen('write')} />}
+      {screen === 'write' && <WriteScreen onArticleReady={handleArticleReady} />}
+      {screen === 'review' && (
+        <ReviewScreen
+          mdPath={articleMdPath}
+          title={articleTitle}
+          onPublish={handleGoPublish}
+          onBack={() => setScreen('write')}
+        />
+      )}
+      {screen === 'publish' && (
+        <PublishScreen
+          mdPath={articleMdPath}
+          title={articleTitle}
+          onDone={() => setScreen('write')}
+          onBack={() => setScreen('review')}
+        />
+      )}
+      {screen === 'settings' && <SettingsScreen onBack={() => setScreen('write')} />}
+
+      {showEdgeModal && (
+        <EdgeSetupModal onReady={handleEdgeReady} onClose={() => setShowEdgeModal(false)} />
+      )}
+    </div>
+  )
+}

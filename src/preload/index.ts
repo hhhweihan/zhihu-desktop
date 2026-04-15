@@ -1,22 +1,36 @@
-import { contextBridge } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import { contextBridge, ipcRenderer } from 'electron'
 
-// Custom APIs for renderer
-const api = {}
+contextBridge.exposeInMainWorld('electronAPI', {
+  // API Key
+  saveApiKey: (key: string) => ipcRenderer.invoke('api-key:save', key),
+  loadApiKey: () => ipcRenderer.invoke('api-key:load'),
+  clearApiKey: () => ipcRenderer.invoke('api-key:clear'),
 
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-  } catch (error) {
-    console.error(error)
-  }
-} else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
-  // @ts-ignore (define in dts)
-  window.api = api
-}
+  // AI Config
+  saveConfig: (config: unknown) => ipcRenderer.invoke('config:save', config),
+  loadConfig: () => ipcRenderer.invoke('config:load'),
+
+  // Edge
+  checkEdge: () => ipcRenderer.invoke('edge:check'),
+  launchEdge: () => ipcRenderer.invoke('edge:launch'),
+
+  // Article
+  generateArticle: (topic: string) => ipcRenderer.invoke('article:generate', topic),
+  cancelGenerate: () => ipcRenderer.invoke('article:cancel'),
+  reviewArticle: (mdPath: string) => ipcRenderer.invoke('article:review', mdPath),
+  publishArticle: (mdPath: string, autoSubmit: boolean) =>
+    ipcRenderer.invoke('article:publish', mdPath, autoSubmit),
+  readFile: (filePath: string) => ipcRenderer.invoke('file:read', filePath),
+
+  // 流式事件
+  onGenerateChunk: (cb: (chunk: string) => void) => {
+    const handler = (_: unknown, chunk: string) => cb(chunk)
+    ipcRenderer.on('generate:chunk', handler)
+    return () => ipcRenderer.removeListener('generate:chunk', handler)
+  },
+  onScriptLog: (cb: (msg: string) => void) => {
+    const handler = (_: unknown, msg: string) => cb(msg)
+    ipcRenderer.on('script:log', handler)
+    return () => ipcRenderer.removeListener('script:log', handler)
+  },
+})

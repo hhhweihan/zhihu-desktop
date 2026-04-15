@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npx -y bun \"C:\\\\Users\\\\12582\\\\.claude\\\\skills\\\\svg-to-png\\\\scripts\\\\convert.ts\" --input build/icon.svg --output build/icon.png --width 512 --height 512)"
+    ]
+  }
+}

@@ -1,6 +1,9 @@
 node_modules
 dist
 out
+dist-electron
 .DS_Store
 .eslintcache
 *.log*
+resources/bun.exe
+scripts/node_modules

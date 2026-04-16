@@ -15,11 +15,13 @@ declare global {
       chooseDirectory: (defaultPath?: string) => Promise<string | null>
       checkEdge: () => Promise<boolean>
       launchEdge: () => Promise<{ success: boolean; error?: string }>
+      getZhihuLoginState: () => Promise<ZhihuLoginState>
       getAppUpdateState: () => Promise<AppUpdateState>
       checkForAppUpdates: () => Promise<AppUpdateState>
       downloadAppUpdate: () => Promise<AppUpdateState>
       installAppUpdate: () => Promise<void>
-      generateArticle: (topic: string) => Promise<{ title: string; mdPath: string }>
+      suggestArticlePlans: (topic: string) => Promise<ArticlePlan[]>
+      generateArticle: (topic: string, plan?: ArticlePlan) => Promise<{ title: string; mdPath: string }>
       cancelGenerate: () => Promise<void>
       reviewArticle: (mdPath: string) => Promise<ReviewReport>
       publishArticle: (mdPath: string, autoSubmit: boolean) => Promise<{ status: string }>
@@ -30,5 +32,19 @@ declare global {
       onScriptLog: (cb: (msg: string) => void) => () => void
       onAppUpdateState: (cb: (state: AppUpdateState) => void) => () => void
     }
+  }
+
+  interface ArticlePlan {
+    title: string
+    angle: string
+    outline: string[]
+  }
+
+  interface ZhihuLoginState {
+    edgeReady: boolean
+    loggedIn: boolean
+    displayName?: string
+    currentUrl?: string
+    reason?: string
   }
 }

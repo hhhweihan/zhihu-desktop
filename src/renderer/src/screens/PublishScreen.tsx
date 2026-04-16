@@ -57,6 +57,8 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [autoSubmitted, setAutoSubmitted] = useState(false)
   const [activeStep, setActiveStep] = useState(0)
+  const [zhihuState, setZhihuState] = useState<ZhihuLoginState | null>(null)
+  const [checkingZhihuState, setCheckingZhihuState] = useState(false)
 
   useEffect(() => {
     const off = window.electronAPI.onScriptLog((msg) => {
@@ -70,7 +72,29 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
     return off
   }, [])
 
+  useEffect(() => {
+    void refreshZhihuState()
+  }, [])
+
+  async function refreshZhihuState() {
+    setCheckingZhihuState(true)
+    try {
+      const state = await window.electronAPI.getZhihuLoginState()
+      setZhihuState(state)
+    } finally {
+      setCheckingZhihuState(false)
+    }
+  }
+
   async function handlePublish(autoSubmit: boolean) {
+    const latestState = await window.electronAPI.getZhihuLoginState()
+    setZhihuState(latestState)
+    if (!latestState.loggedIn) {
+      setStatus('error')
+      setError(latestState.reason || '知乎未登录，请先在 Edge 中登录知乎后再发布')
+      return
+    }
+
     setAutoSubmitted(autoSubmit)
     setStatus('publishing')
     setError('')
@@ -112,11 +136,38 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
           <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 'var(--sp-5)' }}>
             确认后将自动打开知乎编辑器并填充内容。
           </p>
+          <div className="login-state-card" style={{ marginBottom: 'var(--sp-5)' }}>
+            <div className="login-state-card__header">
+              <div>
+                <p className="login-state-card__title">知乎登录状态</p>
+                <p className="login-state-card__hint">
+                  {checkingZhihuState
+                    ? '检测中...'
+                    : zhihuState?.loggedIn
+                      ? `已同步 Edge 登录态${zhihuState.displayName ? `：${zhihuState.displayName}` : ''}`
+                      : zhihuState?.reason || '尚未检测'}
+                </p>
+              </div>
+              <span className={`status-badge ${zhihuState?.loggedIn ? 'status-badge--success' : 'status-badge--warning'}`}>
+                {checkingZhihuState ? '检测中' : zhihuState?.loggedIn ? '已登录' : zhihuState?.edgeReady === false ? '未连接 Edge' : '未登录'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap', marginTop: 'var(--sp-4)' }}>
+              <button className="btn btn-ghost btn-sm" onClick={refreshZhihuState} disabled={checkingZhihuState}>
+                刷新登录状态
+              </button>
+              {!zhihuState?.loggedIn && (
+                <p className="text-muted" style={{ margin: 0, alignSelf: 'center' }}>
+                  请先在 Edge 中登录知乎，再回来点击发布。
+                </p>
+              )}
+            </div>
+          </div>
           <div style={{ display: 'flex', gap: 'var(--sp-3)' }}>
-            <button className="btn btn-secondary" onClick={() => handlePublish(false)}>
+            <button className="btn btn-secondary" onClick={() => handlePublish(false)} disabled={checkingZhihuState || !zhihuState?.loggedIn}>
               填充内容（我来点发布）
             </button>
-            <button className="btn btn-primary" onClick={() => handlePublish(true)}>
+            <button className="btn btn-primary" onClick={() => handlePublish(true)} disabled={checkingZhihuState || !zhihuState?.loggedIn}>
               自动发布
             </button>
           </div>

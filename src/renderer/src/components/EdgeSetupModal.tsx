@@ -9,6 +9,18 @@ interface Props {
 export default function EdgeSetupModal({ onReady, onClose }: Props) {
   const [status, setStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle')
   const [error, setError] = useState('')
+  const [zhihuState, setZhihuState] = useState<ZhihuLoginState | null>(null)
+  const [checkingZhihuState, setCheckingZhihuState] = useState(false)
+
+  async function refreshZhihuState() {
+    setCheckingZhihuState(true)
+    try {
+      const state = await window.electronAPI.getZhihuLoginState()
+      setZhihuState(state)
+    } finally {
+      setCheckingZhihuState(false)
+    }
+  }
 
   async function handleCheck() {
     setStatus('checking')
@@ -16,10 +28,12 @@ export default function EdgeSetupModal({ onReady, onClose }: Props) {
     const ok = await window.electronAPI.checkEdge()
     if (ok) {
       setStatus('ok')
+      await refreshZhihuState()
     } else {
       const result = await window.electronAPI.launchEdge()
       if (result.success) {
         setStatus('ok')
+        await refreshZhihuState()
       } else {
         setStatus('fail')
         setError(result.error ?? '启动失败')
@@ -50,11 +64,33 @@ export default function EdgeSetupModal({ onReady, onClose }: Props) {
         {status === 'ok' && (
           <div>
             <p className="text-success" style={{ marginBottom: 'var(--sp-4)' }}>
-              ✓ Edge 已就绪，请在 Edge 中登录知乎。
+              ✓ Edge 已就绪。
             </p>
-            <button className="btn btn-primary" onClick={onReady}>
-              已登录知乎，继续发布 →
-            </button>
+            <div className="login-state-card" style={{ marginBottom: 'var(--sp-4)' }}>
+              <div className="login-state-card__header">
+                <div>
+                  <p className="login-state-card__title">知乎登录状态</p>
+                  <p className="login-state-card__hint">
+                    {checkingZhihuState
+                      ? '检测中...'
+                      : zhihuState?.loggedIn
+                        ? `已同步 Edge 登录态${zhihuState.displayName ? `：${zhihuState.displayName}` : ''}`
+                        : zhihuState?.reason || '请先在 Edge 中登录知乎'}
+                  </p>
+                </div>
+                <span className={`status-badge ${zhihuState?.loggedIn ? 'status-badge--success' : 'status-badge--warning'}`}>
+                  {checkingZhihuState ? '检测中' : zhihuState?.loggedIn ? '已登录' : '未登录'}
+                </span>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+              <button className="btn btn-ghost btn-sm" onClick={refreshZhihuState} disabled={checkingZhihuState}>
+                刷新知乎登录状态
+              </button>
+              <button className="btn btn-primary" onClick={onReady} disabled={!zhihuState?.loggedIn || checkingZhihuState}>
+                已登录知乎，继续发布 →
+              </button>
+            </div>
           </div>
         )}
         {status === 'fail' && (

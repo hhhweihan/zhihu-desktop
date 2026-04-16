@@ -9,6 +9,14 @@ export interface PublishArticleOptions {
   onLog?: (line: string) => void
 }
 
+export interface ZhihuLoginState {
+  edgeReady: boolean
+  loggedIn: boolean
+  displayName?: string
+  currentUrl?: string
+  reason?: string
+}
+
 const ZHIHU_WRITE_URL = 'https://zhuanlan.zhihu.com/write'
 const CDP_PORT = 9222
 
@@ -72,6 +80,78 @@ async function waitForEditor(cdp: CdpConnection, sessionId: string): Promise<voi
   }
 
   throw new Error('知乎编辑器未就绪，请确认已登录知乎且页面已成功打开')
+}
+
+async function closePageSession(cdp: CdpConnection, targetId: string): Promise<void> {
+  try {
+    await cdp.send('Target.closeTarget', { targetId })
+  } catch {
+    // Ignore close failures, target may already be gone.
+  }
+}
+
+export async function getZhihuLoginState(): Promise<ZhihuLoginState> {
+  if (!(await isEdgeDebugging())) {
+    return {
+      edgeReady: false,
+      loggedIn: false,
+      reason: 'Edge 未连接，无法检测知乎登录状态',
+    }
+  }
+
+  const wsUrl = await getWebSocketDebuggerUrl()
+  const cdp = await CdpConnection.connect(wsUrl, 10_000)
+
+  try {
+    const page = await openPageSession({
+      cdp,
+      reusing: false,
+      url: ZHIHU_WRITE_URL,
+      matchTarget: (target) => target.url.startsWith(ZHIHU_WRITE_URL) || target.url.includes('zhihu.com/signin'),
+      enablePage: true,
+      enableRuntime: true,
+      activateTarget: false,
+    })
+
+    try {
+      await cdp.send('Page.navigate', { url: ZHIHU_WRITE_URL }, { sessionId: page.sessionId })
+      await sleep(2_500)
+
+      const state = await runtimeEvaluate<ZhihuLoginState>(
+        cdp,
+        page.sessionId,
+        `(() => {
+          const currentUrl = location.href;
+          const titleEl = document.querySelector('textarea[placeholder*="标题"], input[placeholder*="标题"], textarea, input[type="text"]');
+          const bodyEl = document.querySelector('.ProseMirror, .public-DraftEditor-content [contenteditable="true"], [contenteditable="true"], [role="textbox"]');
+          const displayName = (
+            document.querySelector('[data-testid="AppHeader-profile"]')?.textContent
+            || document.querySelector('a[href*="/people/"]')?.textContent
+            || document.querySelector('.AppHeader-profileEntry-name')?.textContent
+            || ''
+          ).trim();
+          const redirectedToSignin = /zhihu\.com\/(signin|signup)/.test(currentUrl);
+          const loggedIn = !redirectedToSignin && Boolean(titleEl && bodyEl);
+
+          return {
+            edgeReady: true,
+            loggedIn,
+            displayName: displayName || undefined,
+            currentUrl,
+            reason: loggedIn ? undefined : '知乎当前未登录，或登录态已过期',
+          };
+        })()`
+      )
+
+      return state
+    } finally {
+      if (page.createdTarget) {
+        await closePageSession(cdp, page.targetId)
+      }
+    }
+  } finally {
+    cdp.close()
+  }
 }
 
 async function fillEditor(cdp: CdpConnection, sessionId: string, title: string, bodyHtml: string): Promise<void> {
@@ -209,6 +289,12 @@ export async function publishArticle(options: PublishArticleOptions): Promise<{ 
       throw new Error(launchResult.error || 'Edge 启动失败')
     }
   }
+
+  const loginState = await getZhihuLoginState()
+  if (!loginState.loggedIn) {
+    throw new Error(loginState.reason || '知乎未登录，请先在 Edge 中登录知乎后再发布')
+  }
+  emitLog(options.onLog, `✓ 知乎登录状态正常${loginState.displayName ? `：${loginState.displayName}` : ''}`)
 
   emitStep(options.onLog, 2, '填充文章内容')
   emitLog(options.onLog, '▶ 步骤 2: 转换 Markdown 为 HTML')

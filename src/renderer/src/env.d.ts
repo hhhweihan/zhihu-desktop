@@ -19,6 +19,7 @@ interface Window {
     chooseDirectory: (defaultPath?: string) => Promise<string | null>
     checkEdge: () => Promise<boolean>
     launchEdge: () => Promise<{ success: boolean; error?: string }>
+    getZhihuLoginState: () => Promise<ZhihuLoginState>
     getAppUpdateState: () => Promise<AppUpdateState>
     checkForAppUpdates: () => Promise<AppUpdateState>
     downloadAppUpdate: () => Promise<AppUpdateState>
@@ -85,4 +86,12 @@ interface ArticlePlan {
   title: string
   angle: string
   outline: string[]
+}
+
+interface ZhihuLoginState {
+  edgeReady: boolean
+  loggedIn: boolean
+  displayName?: string
+  currentUrl?: string
+  reason?: string
 }

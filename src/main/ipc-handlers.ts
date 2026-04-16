@@ -3,7 +3,7 @@ import { saveApiKey, loadApiKey, clearApiKey, saveConfig, loadConfig, clearConfi
 import { isEdgeDebugging, launchEdge } from './edge-launcher'
 import { startArticleGeneration, suggestArticlePlans, type ArticlePlan } from './services/article-generation'
 import { reviewArticle } from './services/article-review'
-import { publishArticle } from './services/article-publish'
+import { publishArticle, getZhihuLoginState } from './services/article-publish'
 import { checkForAppUpdates, downloadAppUpdate, getAppUpdateState, quitAndInstallAppUpdate } from './services/app-updater'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -38,6 +38,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // ── Edge ──────────────────────────────────────────────────
   ipcMain.handle('edge:check', () => isEdgeDebugging())
   ipcMain.handle('edge:launch', () => launchEdge())
+  ipcMain.handle('edge:zhihu-login-state', () => getZhihuLoginState())
 
   // ── App Update ────────────────────────────────────────────
   ipcMain.handle('app-update:get-state', () => getAppUpdateState())

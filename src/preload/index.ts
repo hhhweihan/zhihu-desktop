@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Edge
   checkEdge: () => ipcRenderer.invoke('edge:check'),
   launchEdge: () => ipcRenderer.invoke('edge:launch'),
+  getZhihuLoginState: () => ipcRenderer.invoke('edge:zhihu-login-state'),
 
   // App Update
   getAppUpdateState: () => ipcRenderer.invoke('app-update:get-state'),

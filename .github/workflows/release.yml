@@ -101,8 +101,6 @@ jobs:
         with:
           files: |
             release-artifacts/*.exe
-            release-artifacts/*.yml
-            release-artifacts/*.blockmap
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

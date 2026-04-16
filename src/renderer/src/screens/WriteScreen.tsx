@@ -91,9 +91,17 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
   const [loadingHistoryPreview, setLoadingHistoryPreview] = useState(false)
   const [historySearch, setHistorySearch] = useState('')
   const [showAllHistory, setShowAllHistory] = useState(false)
+  const [planOptions, setPlanOptions] = useState<ArticlePlan[]>([])
+  const [planError, setPlanError] = useState('')
+  const [loadingPlans, setLoadingPlans] = useState(false)
+  const [selectedPlanIndex, setSelectedPlanIndex] = useState(0)
+  const [planTopic, setPlanTopic] = useState('')
   const cancelledRef = useRef(false)
 
   const normalizedTopic = normalizeTopic(topic)
+  const hasTypedTopic = topic.trim().length > 0
+  const hasCurrentPlanOptions = normalizedTopic.length > 0 && planTopic === normalizedTopic && planOptions.length > 0
+  const selectedPlan = hasCurrentPlanOptions ? planOptions[selectedPlanIndex] ?? planOptions[0] ?? null : null
   const matchedHistory = normalizedTopic
     ? history.find((item) => normalizeTopic(item.topic || item.title) === normalizedTopic)
     : null
@@ -105,6 +113,7 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
     })
     : history
   const visibleHistory = showAllHistory || normalizedHistorySearch ? filteredHistory : filteredHistory.slice(0, 6)
+  const shouldShowHistoryLibrary = !hasTypedTopic
 
   useEffect(() => {
     const off = window.electronAPI.onScriptLog((msg) => {
@@ -118,7 +127,46 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
     return off
   }, [])
 
-  async function runGeneration() {
+  useEffect(() => {
+    if (!normalizedTopic) {
+      setPlanOptions([])
+      setSelectedPlanIndex(0)
+      setPlanError('')
+      setPlanTopic('')
+      return
+    }
+
+    if (planTopic && planTopic !== normalizedTopic) {
+      setPlanOptions([])
+      setSelectedPlanIndex(0)
+      setPlanError('')
+      setPlanTopic('')
+    }
+  }, [normalizedTopic, planTopic])
+
+  async function requestPlanOptions() {
+    if (!topic.trim()) return
+
+    setLoadingPlans(true)
+    setPlanError('')
+    setError('')
+
+    try {
+      const nextPlans = await window.electronAPI.suggestArticlePlans(topic.trim())
+      setPlanOptions(nextPlans)
+      setSelectedPlanIndex(0)
+      setPlanTopic(normalizedTopic)
+    } catch (e: any) {
+      setPlanOptions([])
+      setSelectedPlanIndex(0)
+      setPlanTopic('')
+      setPlanError(e.message || '获取标题方案失败')
+    } finally {
+      setLoadingPlans(false)
+    }
+  }
+
+  async function runGeneration(plan?: ArticlePlan) {
     if (!topic.trim()) return
     cancelledRef.current = false
     setGenerating(true)
@@ -127,7 +175,7 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
     setActiveStep(0)
     setShowPreview(false)
     try {
-      const result = await window.electronAPI.generateArticle(topic.trim())
+      const result = await window.electronAPI.generateArticle(topic.trim(), plan)
       if (cancelledRef.current) return
       try {
         const text = await window.electronAPI.readFile(result.mdPath)
@@ -214,11 +262,20 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
 
   async function handlePrimaryAction(forceRegenerate = false) {
     if (!topic.trim()) return
+
     if (matchedHistory && !forceRegenerate) {
-      await handleUseHistory(matchedHistory)
+      if (!hasCurrentPlanOptions) {
+        await handleUseHistory(matchedHistory)
+        return
+      }
+    }
+
+    if (!hasCurrentPlanOptions) {
+      await requestPlanOptions()
       return
     }
-    await runGeneration()
+
+    await runGeneration(selectedPlan ?? undefined)
   }
 
   const activeStepLabel = WRITE_STEPS[activeStep]?.label ?? '准备中'
@@ -288,7 +345,7 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
   }
 
   return (
-    <div className="screen">
+    <div className={`screen${generating || hasCurrentPlanOptions ? ' screen-wide' : ''}`}>
       <h1 className="page-title">写一篇知乎文章</h1>
 
       <div className="form-group">
@@ -297,7 +354,7 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
           placeholder="输入文章主题，例如：C++ 内存泄漏排查实战"
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && !generating && handlePrimaryAction()}
+          onKeyDown={(e) => e.key === 'Enter' && !generating && !loadingPlans && handlePrimaryAction()}
           disabled={generating}
           style={{ fontSize: 16, padding: '12px 14px' }}
         />
@@ -308,14 +365,14 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
           <div>
             <p className="history-match-card__title">检测到同主题历史文章</p>
             <p className="history-match-card__hint">
-              上次生成时间：{formatHistoryDate(matchedHistory.createdAt)}，默认直接复用这篇稿子，不再重复生成。
+              上次生成时间：{formatHistoryDate(matchedHistory.createdAt)}，默认直接复用这篇稿子；如果要写新稿，先点“强制重新生成”选择标题方案。
             </p>
           </div>
           <div className="history-match-card__actions">
-            <button className="btn btn-secondary btn-sm" onClick={() => handleBrowseHistory(matchedHistory)} disabled={generating}>
+            <button className="btn btn-secondary btn-sm" onClick={() => handleBrowseHistory(matchedHistory)} disabled={generating || loadingPlans}>
               浏览历史
             </button>
-            <button className="btn btn-ghost btn-sm" onClick={() => handlePrimaryAction(true)} disabled={generating}>
+            <button className="btn btn-ghost btn-sm" onClick={() => handlePrimaryAction(true)} disabled={generating || loadingPlans}>
               强制重新生成
             </button>
           </div>
@@ -326,10 +383,10 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
         <button
           className="btn btn-primary btn-lg"
           onClick={() => handlePrimaryAction()}
-          disabled={generating || !topic.trim()}
+          disabled={generating || loadingPlans || !topic.trim()}
           style={{ flex: 1 }}
         >
-          {generating ? '生成中...' : matchedHistory ? '使用历史文章' : '生成文章'}
+          {generating ? '生成中...' : loadingPlans ? '方案生成中...' : matchedHistory && !hasCurrentPlanOptions ? '使用历史文章' : hasCurrentPlanOptions ? '按所选方案生成' : '获取标题方案'}
         </button>
         {generating && (
           <button className="btn btn-danger" onClick={handleCancel}>
@@ -340,65 +397,62 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
 
       {error && <p className="text-error" style={{ marginTop: 'var(--sp-4)' }}>{error}</p>}
 
-      <div className="card" style={{ marginTop: 'var(--sp-6)' }}>
-        <div className="history-card__header">
-          <div>
-            <p className="history-card__title">历史文章记录</p>
-            <p className="history-card__hint">支持搜索、删除单条和展开全部列表。删除时会同步删除本地 Markdown 文件。</p>
-          </div>
-          <div className="history-toolbar">
-            <input
-              className="input history-search-input"
-              placeholder="搜索标题、主题或文件路径"
-              value={historySearch}
-              onChange={(event) => setHistorySearch(event.target.value)}
-            />
-            {filteredHistory.length > 6 && !normalizedHistorySearch && (
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowAllHistory((prev) => !prev)}>
-                {showAllHistory ? '收起列表' : '显示全部'}
+      {hasTypedTopic && !generating && (
+        <div className="card suggestion-card" style={{ marginTop: 'var(--sp-6)' }}>
+          <div className="suggestion-card__header">
+            <div>
+              <p className="suggestion-card__title">标题与大纲建议</p>
+              <p className="suggestion-card__hint">先确认方向，再生成正文。这里会保留 2-3 套不同切入角度的方案。</p>
+            </div>
+            <div className="suggestion-card__actions">
+              <button className="btn btn-ghost btn-sm" onClick={requestPlanOptions} disabled={loadingPlans}>
+                {hasCurrentPlanOptions ? '重新出方案' : '获取方案'}
               </button>
-            )}
+              {hasCurrentPlanOptions && (
+                <button className="btn btn-secondary btn-sm" onClick={() => runGeneration()} disabled={loadingPlans}>
+                  跳过方案直接生成
+                </button>
+              )}
+            </div>
           </div>
+
+          {planError && <p className="text-error" style={{ marginTop: 0, marginBottom: 'var(--sp-4)' }}>{planError}</p>}
+
+          {loadingPlans ? (
+            <div className="suggestion-empty-state">
+              <p className="suggestion-empty-state__title">正在生成标题和大纲建议...</p>
+              <p className="suggestion-empty-state__hint">通常几秒内返回，生成后可直接选择其中一个方案继续。</p>
+            </div>
+          ) : hasCurrentPlanOptions ? (
+            <div className="suggestion-grid">
+              {planOptions.map((plan, index) => (
+                <button
+                  key={`${plan.title}-${index}`}
+                  type="button"
+                  className={`suggestion-option${selectedPlanIndex === index ? ' suggestion-option--selected' : ''}`}
+                  onClick={() => setSelectedPlanIndex(index)}
+                >
+                  <div className="suggestion-option__badge">方案 {index + 1}</div>
+                  <p className="suggestion-option__title">{plan.title}</p>
+                  <p className="suggestion-option__angle">{plan.angle}</p>
+                  <div className="suggestion-option__outline">
+                    {plan.outline.map((item, outlineIndex) => (
+                      <p key={`${item}-${outlineIndex}`} className="suggestion-option__outline-item">
+                        {outlineIndex + 1}. {item}
+                      </p>
+                    ))}
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="suggestion-empty-state">
+              <p className="suggestion-empty-state__title">先出 2-3 个标题和大纲方案</p>
+              <p className="suggestion-empty-state__hint">输入主题后点击“获取标题方案”，确认方向再开始写正文，避免直接出成稿后返工。</p>
+            </div>
+          )}
         </div>
-        {history.length > 0 && (
-          <p className="text-muted" style={{ marginTop: 0, marginBottom: 'var(--sp-4)' }}>
-            共 {history.length} 条记录，当前显示 {visibleHistory.length} 条。
-          </p>
-        )}
-        {filteredHistory.length === 0 ? (
-          <p className="text-muted" style={{ margin: 0 }}>
-            {history.length === 0 ? '还没有历史文章记录，先生成一篇再回来查看。' : '没有匹配的历史记录。'}
-          </p>
-        ) : (
-          <div className="history-list">
-            {visibleHistory.map((entry) => {
-              const isMatched = matchedHistory?.mdPath === entry.mdPath
-              return (
-                <div key={entry.id} className={`history-item${isMatched ? ' history-item--matched' : ''}`}>
-                  <div className="history-item__body">
-                    <p className="history-item__title">{entry.title}</p>
-                    <p className="history-item__meta">
-                      主题：{entry.topic || '未记录'} · 保存于 {formatHistoryDate(entry.createdAt)}
-                    </p>
-                    <p className="history-item__path">{entry.mdPath}</p>
-                  </div>
-                  <div className="history-item__actions">
-                    <button className="btn btn-ghost btn-sm" onClick={() => handleBrowseHistory(entry)}>
-                      浏览
-                    </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleUseHistory(entry)}>
-                      使用
-                    </button>
-                    <button className="btn btn-danger btn-sm" onClick={() => handleDeleteHistory(entry)}>
-                      删除记录
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+      )}
 
       {generating && (
         <div className="card" style={{ marginTop: 'var(--sp-6)' }}>
@@ -414,9 +468,71 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
               <ProgressSteps steps={steps} />
             </div>
             <div className="activity-grid__column">
-              <LogPanel logs={logs} emptyText="等待脚本输出日志..." defaultShowImportantOnly />
+              <LogPanel logs={logs} emptyText="等待脚本输出日志..." defaultShowImportantOnly maxHeight={300} />
             </div>
           </div>
+        </div>
+      )}
+
+      {shouldShowHistoryLibrary && (
+        <div className="card" style={{ marginTop: 'var(--sp-6)' }}>
+          <div className="history-card__header">
+            <div>
+              <p className="history-card__title">历史文章记录</p>
+              <p className="history-card__hint">仅在主题未确定前展示，支持搜索、删除单条和展开全部列表。删除时会同步删除本地 Markdown 文件。</p>
+            </div>
+            <div className="history-toolbar">
+              <input
+                className="input history-search-input"
+                placeholder="搜索标题、主题或文件路径"
+                value={historySearch}
+                onChange={(event) => setHistorySearch(event.target.value)}
+              />
+              {filteredHistory.length > 6 && !normalizedHistorySearch && (
+                <button className="btn btn-ghost btn-sm" onClick={() => setShowAllHistory((prev) => !prev)}>
+                  {showAllHistory ? '收起列表' : '显示全部'}
+                </button>
+              )}
+            </div>
+          </div>
+          {history.length > 0 && (
+            <p className="text-muted" style={{ marginTop: 0, marginBottom: 'var(--sp-4)' }}>
+              共 {history.length} 条记录，当前显示 {visibleHistory.length} 条。
+            </p>
+          )}
+          {filteredHistory.length === 0 ? (
+            <p className="text-muted" style={{ margin: 0 }}>
+              {history.length === 0 ? '还没有历史文章记录，先生成一篇再回来查看。' : '没有匹配的历史记录。'}
+            </p>
+          ) : (
+            <div className="history-list">
+              {visibleHistory.map((entry) => {
+                const isMatched = matchedHistory?.mdPath === entry.mdPath
+                return (
+                  <div key={entry.id} className={`history-item${isMatched ? ' history-item--matched' : ''}`}>
+                    <div className="history-item__body">
+                      <p className="history-item__title">{entry.title}</p>
+                      <p className="history-item__meta">
+                        主题：{entry.topic || '未记录'} · 保存于 {formatHistoryDate(entry.createdAt)}
+                      </p>
+                      <p className="history-item__path">{entry.mdPath}</p>
+                    </div>
+                    <div className="history-item__actions">
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleBrowseHistory(entry)}>
+                        浏览
+                      </button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => handleUseHistory(entry)}>
+                        使用
+                      </button>
+                      <button className="btn btn-danger btn-sm" onClick={() => handleDeleteHistory(entry)}>
+                        删除记录
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 

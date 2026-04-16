@@ -60,6 +60,4 @@ jobs:
           name: zhihu-desktop-windows-${{ github.sha }}
           path: |
             dist-electron/*.exe
-            dist-electron/latest*.yml
-            dist-electron/*.blockmap
           retention-days: 30

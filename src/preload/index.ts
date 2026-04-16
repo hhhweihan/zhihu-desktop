@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AppUpdateState } from '../main/services/app-updater'
+import type { ArticlePlan } from '../main/services/article-generation'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // API Key
@@ -25,7 +26,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   installAppUpdate: () => ipcRenderer.invoke('app-update:install'),
 
   // Article
-  generateArticle: (topic: string) => ipcRenderer.invoke('article:generate', topic),
+  suggestArticlePlans: (topic: string) => ipcRenderer.invoke('article:suggest-plans', topic),
+  generateArticle: (topic: string, plan?: ArticlePlan) => ipcRenderer.invoke('article:generate', topic, plan),
   cancelGenerate: () => ipcRenderer.invoke('article:cancel'),
   reviewArticle: (mdPath: string) => ipcRenderer.invoke('article:review', mdPath),
   publishArticle: (mdPath: string, autoSubmit: boolean) =>

@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron'
 import { saveApiKey, loadApiKey, clearApiKey, saveConfig, loadConfig, clearConfig, AIConfig, getDefaultOutputDir } from './secure-storage'
 import { isEdgeDebugging, launchEdge } from './edge-launcher'
-import { startArticleGeneration } from './services/article-generation'
+import { startArticleGeneration, suggestArticlePlans, type ArticlePlan } from './services/article-generation'
 import { reviewArticle } from './services/article-review'
 import { publishArticle } from './services/article-publish'
 import { checkForAppUpdates, downloadAppUpdate, getAppUpdateState, quitAndInstallAppUpdate } from './services/app-updater'
@@ -48,7 +48,21 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   // ── Generate Article ──────────────────────────────────────
-  ipcMain.handle('article:generate', async (_, topic: string) => {
+  ipcMain.handle('article:suggest-plans', async (_, topic: string) => {
+    const apiKey = loadApiKey()
+    if (!apiKey) throw new Error('API Key 未设置')
+
+    const config = loadConfig()
+
+    return suggestArticlePlans({
+      topic,
+      apiKey,
+      model: config.model,
+      baseUrl: config.baseUrl,
+    })
+  })
+
+  ipcMain.handle('article:generate', async (_, topic: string, plan?: ArticlePlan) => {
     const apiKey = loadApiKey()
     if (!apiKey) throw new Error('API Key 未设置')
 
@@ -61,6 +75,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       outputDir,
       model: config.model,
       baseUrl: config.baseUrl,
+      plan,
       onLog: (line) => mainWindow.webContents.send('script:log', line),
     })
 

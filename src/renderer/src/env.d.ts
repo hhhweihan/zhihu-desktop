@@ -23,7 +23,8 @@ interface Window {
     checkForAppUpdates: () => Promise<AppUpdateState>
     downloadAppUpdate: () => Promise<AppUpdateState>
     installAppUpdate: () => Promise<void>
-    generateArticle: (topic: string) => Promise<{ mdPath: string; title: string }>
+    suggestArticlePlans: (topic: string) => Promise<ArticlePlan[]>
+    generateArticle: (topic: string, plan?: ArticlePlan) => Promise<{ mdPath: string; title: string }>
     cancelGenerate: () => Promise<void>
     reviewArticle: (mdPath: string) => Promise<ReviewReport>
     publishArticle: (mdPath: string, autoSubmit: boolean) => Promise<{ status: string }>
@@ -78,4 +79,10 @@ interface ArticleHistory {
   mdPath: string
   createdAt: number
   score?: number
+}
+
+interface ArticlePlan {
+  title: string
+  angle: string
+  outline: string[]
 }

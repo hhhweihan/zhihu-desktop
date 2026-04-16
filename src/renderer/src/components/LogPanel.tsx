@@ -148,7 +148,7 @@ export default function LogPanel({
           displayedLogs.map((log, index) => (
             <div key={`${log.timestamp}-${index}`} className={`log-panel__line log-panel__line--${log.tone ?? 'neutral'}`}>
               <span className="log-panel__time">[{formatTimestamp(log.timestamp)}]</span>
-              <span>{log.message}</span>
+              <span className="log-panel__message">{log.message}</span>
             </div>
           ))
         )}

@@ -2,12 +2,19 @@ import Anthropic from '@anthropic-ai/sdk'
 import fs from 'node:fs'
 import path from 'node:path'
 
+export interface ArticlePlan {
+  title: string
+  angle: string
+  outline: string[]
+}
+
 export interface GenerateArticleOptions {
   topic: string
   apiKey: string
   outputDir: string
   model: string
   baseUrl?: string
+  plan?: ArticlePlan
   onLog?: (line: string) => void
 }
 
@@ -16,9 +23,20 @@ export interface GenerateArticleResult {
   mdPath: string
 }
 
+export interface SuggestArticlePlansOptions {
+  topic: string
+  apiKey: string
+  model: string
+  baseUrl?: string
+}
+
 interface RunningGeneration {
   promise: Promise<GenerateArticleResult>
   abort: () => void
+}
+
+interface ParsedTextResult {
+  text: string
 }
 
 function emitLog(onLog: GenerateArticleOptions['onLog'], message: string): void {
@@ -34,6 +52,48 @@ function getTitleFromMarkdown(content: string, fallbackTitle: string): string {
   return titleMatch ? titleMatch[1] : fallbackTitle
 }
 
+function getTextContent(response: Anthropic.Messages.Message): string {
+  const textBlock = response.content.find((item): item is ParsedTextResult & typeof item => item.type === 'text')
+  return textBlock?.text ?? ''
+}
+
+function parseJsonObject<T>(input: string, fallback: T): T {
+  try {
+    const match = input.match(/\{[\s\S]*\}/)
+    if (!match) return fallback
+    return JSON.parse(match[0]) as T
+  } catch {
+    return fallback
+  }
+}
+
+function createAnthropicClient(apiKey: string, baseUrl?: string): Anthropic {
+  const clientOptions: ConstructorParameters<typeof Anthropic>[0] = { apiKey }
+  if (baseUrl) {
+    clientOptions.baseURL = baseUrl
+  }
+
+  return new Anthropic(clientOptions)
+}
+
+function normalizePlan(item: Partial<ArticlePlan> | null | undefined): ArticlePlan | null {
+  const title = item?.title?.trim()
+  const angle = item?.angle?.trim()
+  const outline = Array.isArray(item?.outline)
+    ? item.outline.map((entry) => String(entry).trim()).filter(Boolean)
+    : []
+
+  if (!title || !angle || outline.length < 3) {
+    return null
+  }
+
+  return {
+    title,
+    angle,
+    outline: outline.slice(0, 6),
+  }
+}
+
 function buildSystemPrompt(): string {
   return `你是一位有 10 年经验的技术博主，擅长写知乎技术文章。
 写作规范：
@@ -47,21 +107,82 @@ function buildSystemPrompt(): string {
 - 适当加入个人踩坑经历`
 }
 
-function buildUserPrompt(topic: string): string {
-  return `请写一篇关于「${topic}」的知乎技术文章。要求：
+function buildSuggestionPrompt(topic: string): string {
+  return `围绕「${topic}」设计 3 套可直接写成知乎技术文章的方案。
+
+要求：
+1. 每套方案都要包含标题、切入角度、4-6 条大纲。
+2. 标题要具体，不要空泛，不要标题党。
+3. 三套方案的切入角度要明显不同，例如实战复盘、原理拆解、避坑总结。
+4. 大纲必须能直接指导正文写作，避免重复废话。
+5. 严格返回 JSON，不要附加解释。
+
+返回格式：
+{
+  "plans": [
+    {
+      "title": "标题",
+      "angle": "一句话说明这篇文章打算怎么写",
+      "outline": ["大纲1", "大纲2", "大纲3", "大纲4"]
+    }
+  ]
+}`
+}
+
+function buildUserPrompt(topic: string, plan?: ArticlePlan): string {
+  if (!plan) {
+    return `请写一篇关于「${topic}」的知乎技术文章。要求：
 1. 标题要吸引人但不夸张
 2. 有具体的代码示例
 3. 结合实际项目经验
 4. 末尾加：<!-- 话题：技术、编程 -->`
+  }
+
+  return `请基于以下已确认的写作方案，写一篇关于「${topic}」的知乎技术文章。
+
+选定标题：${plan.title}
+写作角度：${plan.angle}
+参考大纲：
+${plan.outline.map((item, index) => `${index + 1}. ${item}`).join('\n')}
+
+要求：
+1. 文章第一行必须是一级标题，并使用这个标题：# ${plan.title}
+2. 正文要严格围绕上述角度和大纲展开，但可以根据内容自然补充过渡段。
+3. 有具体的代码示例。
+4. 结合实际项目经验，少空话。
+5. 末尾加：<!-- 话题：技术、编程 -->`
+}
+
+export async function suggestArticlePlans(options: SuggestArticlePlansOptions): Promise<ArticlePlan[]> {
+  const client = createAnthropicClient(options.apiKey, options.baseUrl)
+  const model = options.model || 'claude-sonnet-4-6'
+  const response = await client.messages.create({
+    model,
+    max_tokens: 1400,
+    system: buildSystemPrompt(),
+    messages: [
+      {
+        role: 'user',
+        content: buildSuggestionPrompt(options.topic),
+      },
+    ],
+  })
+
+  const data = parseJsonObject<{ plans?: Array<Partial<ArticlePlan>> }>(getTextContent(response), { plans: [] })
+  const plans = (data.plans ?? [])
+    .map((item) => normalizePlan(item))
+    .filter((item): item is ArticlePlan => item !== null)
+    .slice(0, 3)
+
+  if (plans.length === 0) {
+    throw new Error('标题方案生成失败，请重试')
+  }
+
+  return plans
 }
 
 export function startArticleGeneration(options: GenerateArticleOptions): RunningGeneration {
-  const clientOptions: ConstructorParameters<typeof Anthropic>[0] = { apiKey: options.apiKey }
-  if (options.baseUrl) {
-    clientOptions.baseURL = options.baseUrl
-  }
-
-  const client = new Anthropic(clientOptions)
+  const client = createAnthropicClient(options.apiKey, options.baseUrl)
   const model = options.model || 'claude-sonnet-4-6'
   let stream: Awaited<ReturnType<typeof client.messages.stream>> | null = null
   let aborted = false
@@ -70,6 +191,9 @@ export function startArticleGeneration(options: GenerateArticleOptions): Running
     emitStep(options.onLog, 1, '整理写作要求')
     emitLog(options.onLog, `▶ 开始生成文章：${options.topic}`)
     emitLog(options.onLog, `使用模型：${model}`)
+    if (options.plan) {
+      emitLog(options.onLog, `已选方案：${options.plan.title}`)
+    }
     emitLog(options.onLog, '阶段 1/5：整理写作要求')
 
     emitStep(options.onLog, 2, '构建提示词')
@@ -85,7 +209,7 @@ export function startArticleGeneration(options: GenerateArticleOptions): Running
       messages: [
         {
           role: 'user',
-          content: buildUserPrompt(options.topic),
+          content: buildUserPrompt(options.topic, options.plan),
         },
       ],
     })
@@ -125,7 +249,7 @@ export function startArticleGeneration(options: GenerateArticleOptions): Running
     emitStep(options.onLog, 4, '保存文章文件')
     emitLog(options.onLog, '阶段 4/5：整理标题并落盘保存')
 
-    const title = getTitleFromMarkdown(fullText, options.topic)
+    const title = getTitleFromMarkdown(fullText, options.plan?.title || options.topic)
     fs.mkdirSync(options.outputDir, { recursive: true })
     const date = new Date().toISOString().slice(0, 10)
     const safeName = title.replace(/[/\\:*?"<>|]/g, '-').slice(0, 50)

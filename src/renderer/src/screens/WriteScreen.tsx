@@ -47,7 +47,7 @@ function parseWriteLog(msg: string): { step?: number; line?: LogEntry } {
   if (line.startsWith('⚠ ')) {
     return { line: { message: line, timestamp: Date.now(), important: true, tone: 'warning' } }
   }
-  if (line.startsWith('▶ ') || line.startsWith('使用模型：') || line.startsWith('写作中：') || line.startsWith('阶段 ')) {
+  if (line.startsWith('▶ ') || line.startsWith('使用模型：') || line.startsWith('已选方案：') || line.startsWith('写作中：') || line.startsWith('阶段 ')) {
     return { line: { message: line, timestamp: Date.now(), important: true, tone: 'info' } }
   }
 

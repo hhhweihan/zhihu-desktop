@@ -1,0 +1,62 @@
+name: Release From Tag
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate tag version matches package.json
+        shell: pwsh
+        run: |
+          $tagVersion = "${{ github.ref_name }}" -replace '^v', ''
+          $packageVersion = node -p "require('./package.json').version"
+          if ($tagVersion -ne $packageVersion) {
+            Write-Error "Tag version ($tagVersion) does not match package.json version ($packageVersion). Tag releases now reuse CI artifacts, so the tagged commit must already contain the release version."
+            exit 1
+          }
+
+      - name: Download artifact from CI build
+        id: download_artifact
+        uses: dawidd6/action-download-artifact@v9
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow: build.yml
+          commit: ${{ github.sha }}
+          name: zhihu-desktop-windows-${{ github.sha }}
+          path: release-artifacts
+          if_no_artifact_found: fail
+
+      - name: Show downloaded files
+        shell: pwsh
+        run: Get-ChildItem release-artifacts -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/*.exe
+            release-artifacts/*.yml
+            release-artifacts/*.blockmap
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

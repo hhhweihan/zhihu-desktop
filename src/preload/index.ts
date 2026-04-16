@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { AppUpdateState } from '../main/services/app-updater'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // API Key
@@ -16,6 +17,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Edge
   checkEdge: () => ipcRenderer.invoke('edge:check'),
   launchEdge: () => ipcRenderer.invoke('edge:launch'),
+
+  // App Update
+  getAppUpdateState: () => ipcRenderer.invoke('app-update:get-state'),
+  checkForAppUpdates: () => ipcRenderer.invoke('app-update:check'),
+  downloadAppUpdate: () => ipcRenderer.invoke('app-update:download'),
+  installAppUpdate: () => ipcRenderer.invoke('app-update:install'),
 
   // Article
   generateArticle: (topic: string) => ipcRenderer.invoke('article:generate', topic),
@@ -37,5 +44,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_: unknown, msg: string) => cb(msg)
     ipcRenderer.on('script:log', handler)
     return () => ipcRenderer.removeListener('script:log', handler)
+  },
+  onAppUpdateState: (cb: (state: AppUpdateState) => void) => {
+    const handler = (_: unknown, state: AppUpdateState) => cb(state)
+    ipcRenderer.on('app-update:state', handler)
+    return () => ipcRenderer.removeListener('app-update:state', handler)
   },
 })

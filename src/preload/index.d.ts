@@ -15,6 +15,10 @@ declare global {
       chooseDirectory: (defaultPath?: string) => Promise<string | null>
       checkEdge: () => Promise<boolean>
       launchEdge: () => Promise<{ success: boolean; error?: string }>
+      getAppUpdateState: () => Promise<AppUpdateState>
+      checkForAppUpdates: () => Promise<AppUpdateState>
+      downloadAppUpdate: () => Promise<AppUpdateState>
+      installAppUpdate: () => Promise<void>
       generateArticle: (topic: string) => Promise<{ title: string; mdPath: string }>
       cancelGenerate: () => Promise<void>
       reviewArticle: (mdPath: string) => Promise<ReviewReport>
@@ -24,6 +28,7 @@ declare global {
       deleteFile: (filePath: string) => Promise<void>
       onGenerateChunk: (cb: (chunk: string) => void) => () => void
       onScriptLog: (cb: (msg: string) => void) => () => void
+      onAppUpdateState: (cb: (state: AppUpdateState) => void) => () => void
     }
   }
 }

@@ -1,30 +1,14 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron'
 import { saveApiKey, loadApiKey, clearApiKey, saveConfig, loadConfig, clearConfig, AIConfig, getDefaultOutputDir } from './secure-storage'
 import { isEdgeDebugging, launchEdge } from './edge-launcher'
-import { runScript } from './bun-sidecar'
+import { startArticleGeneration } from './services/article-generation'
+import { reviewArticle } from './services/article-review'
+import { publishArticle } from './services/article-publish'
+import { checkForAppUpdates, downloadAppUpdate, getAppUpdateState, quitAndInstallAppUpdate } from './services/app-updater'
 import path from 'node:path'
 import fs from 'node:fs'
 
 let currentGenerateAbort: (() => void) | null = null
-
-function extractScriptResult<T>(stderr: string): T | null {
-  const lines = stderr
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (!lines[i].startsWith('__RESULT__')) continue
-    const payload = lines[i].slice('__RESULT__'.length)
-    try {
-      return JSON.parse(payload) as T
-    } catch {
-      return null
-    }
-  }
-
-  return null
-}
 
 export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // ── API Key ──────────────────────────────────────────────
@@ -55,6 +39,14 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('edge:check', () => isEdgeDebugging())
   ipcMain.handle('edge:launch', () => launchEdge())
 
+  // ── App Update ────────────────────────────────────────────
+  ipcMain.handle('app-update:get-state', () => getAppUpdateState())
+  ipcMain.handle('app-update:check', () => checkForAppUpdates())
+  ipcMain.handle('app-update:download', () => downloadAppUpdate())
+  ipcMain.handle('app-update:install', () => {
+    quitAndInstallAppUpdate()
+  })
+
   // ── Generate Article ──────────────────────────────────────
   ipcMain.handle('article:generate', async (_, topic: string) => {
     const apiKey = loadApiKey()
@@ -63,25 +55,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const config = loadConfig()
     const outputDir = config.outputDir || getDefaultOutputDir()
 
-    const args = ['--topic', topic, '--api-key', apiKey, '--output-dir', outputDir, '--model', config.model]
-    if (config.baseUrl) args.push('--base-url', config.baseUrl)
+    const runningGeneration = startArticleGeneration({
+      topic,
+      apiKey,
+      outputDir,
+      model: config.model,
+      baseUrl: config.baseUrl,
+      onLog: (line) => mainWindow.webContents.send('script:log', line),
+    })
 
-    currentGenerateAbort = null
-    const result = await runScript(
-      'generate-article.ts',
-      args,
-      {},
-      (line) => mainWindow.webContents.send('script:log', line)
-    )
-    currentGenerateAbort = null
+    currentGenerateAbort = runningGeneration.abort
 
-    if (result.exitCode !== 0) {
-      throw new Error(`生成失败：${result.stderr.slice(-500)}`)
+    try {
+      return await runningGeneration.promise
+    } finally {
+      currentGenerateAbort = null
     }
-
-    const parsedResult = extractScriptResult<{ title: string; mdPath: string }>(result.stderr)
-    if (!parsedResult) throw new Error('无法解析生成结果')
-    return parsedResult
   })
 
   // ── Review Article ────────────────────────────────────────
@@ -90,40 +79,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     if (!apiKey) throw new Error('API Key 未设置')
 
     const config = loadConfig()
-    const env: Record<string, string> = { ANTHROPIC_API_KEY: apiKey }
-    if (config.baseUrl) env['ANTHROPIC_BASE_URL'] = config.baseUrl
 
-    const result = await runScript(
-      'review-article.ts',
-      [mdPath],
-      env,
-      (line) => mainWindow.webContents.send('script:log', line)
-    )
-
-    if (result.exitCode !== 0) {
-      throw new Error(`审核失败：${result.stderr.slice(-500)}`)
-    }
-
-    return JSON.parse(result.stdout)
+    return reviewArticle({
+      filePath: mdPath,
+      apiKey,
+      baseUrl: config.baseUrl,
+      onLog: (line) => mainWindow.webContents.send('script:log', line),
+    })
   })
 
   // ── Publish Article ───────────────────────────────────────
   ipcMain.handle('article:publish', async (_, mdPath: string, autoSubmit: boolean) => {
-    const args = ['--markdown', mdPath]
-    if (autoSubmit) args.push('--submit')
-
-    const result = await runScript(
-      'publish-article.ts',
-      args,
-      {},
-      (line) => mainWindow.webContents.send('script:log', line)
-    )
-
-    if (result.exitCode !== 0) {
-      throw new Error(`发布失败：${result.stderr.slice(-500)}`)
-    }
-
-    return { status: autoSubmit ? 'published' : 'filled' }
+    return publishArticle({
+      markdownPath: mdPath,
+      autoSubmit,
+      onLog: (line) => mainWindow.webContents.send('script:log', line),
+    })
   })
 
   // ── Cancel Generate ───────────────────────────────────────

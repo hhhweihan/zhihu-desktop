@@ -1,5 +1,6 @@
 // src/renderer/src/screens/SettingsScreen.tsx
 import { useState, useEffect } from 'react'
+import { showAppToast } from '../utils/app-toast'
 
 interface Props {
   onBack: () => void
@@ -8,6 +9,7 @@ interface Props {
 
 export default function SettingsScreen({ onBack, onCredentialsCleared }: Props) {
   const [config, setConfig] = useState<AIConfig | null>(null)
+  const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
   const [defaultOutputDir, setDefaultOutputDir] = useState('')
   const [clearing, setClearing] = useState(false)
   const [cleared, setCleared] = useState(false)
@@ -17,6 +19,29 @@ export default function SettingsScreen({ onBack, onCredentialsCleared }: Props) 
   useEffect(() => {
     window.electronAPI.loadConfig().then(setConfig)
     window.electronAPI.getDefaultOutputDir().then(setDefaultOutputDir)
+    window.electronAPI.getAppUpdateState().then(setUpdateState)
+
+    const dispose = window.electronAPI.onAppUpdateState((nextState) => {
+      setUpdateState(nextState)
+
+      if (nextState.status === 'available') {
+        showAppToast(`发现新版本 ${nextState.availableVersion ?? ''}`.trim(), 'info')
+      }
+
+      if (nextState.status === 'up-to-date') {
+        showAppToast('当前已经是最新版本', 'success')
+      }
+
+      if (nextState.status === 'downloaded') {
+        showAppToast('更新已下载完成，重启后安装', 'success')
+      }
+
+      if (nextState.status === 'error') {
+        showAppToast(nextState.message || '自动更新失败', 'error')
+      }
+    })
+
+    return dispose
   }, [])
 
   async function handleClearKey() {
@@ -69,6 +94,39 @@ export default function SettingsScreen({ onBack, onCredentialsCleared }: Props) 
     }
   }
 
+  async function handleCheckUpdates() {
+    try {
+      const nextState = await window.electronAPI.checkForAppUpdates()
+      setUpdateState(nextState)
+      if (nextState.status === 'unsupported') {
+        showAppToast(nextState.message, 'warning')
+      }
+    } catch (e: any) {
+      showAppToast(e.message || '检查更新失败', 'error')
+    }
+  }
+
+  async function handleDownloadUpdate() {
+    try {
+      await window.electronAPI.downloadAppUpdate()
+    } catch (e: any) {
+      showAppToast(e.message || '下载更新失败', 'error')
+    }
+  }
+
+  async function handleInstallUpdate() {
+    try {
+      showAppToast('应用即将重启并安装更新', 'info')
+      await window.electronAPI.installAppUpdate()
+    } catch (e: any) {
+      showAppToast(e.message || '安装更新失败', 'error')
+    }
+  }
+
+  const canCheckUpdates = updateState?.status !== 'checking' && updateState?.status !== 'downloading'
+  const canDownloadUpdate = updateState?.status === 'available'
+  const canInstallUpdate = updateState?.status === 'downloaded'
+
   return (
     <div className="screen-sm">
       <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ marginBottom: 'var(--sp-4)' }}>
@@ -118,6 +176,38 @@ export default function SettingsScreen({ onBack, onCredentialsCleared }: Props) 
           </button>
           <button className="btn btn-ghost btn-sm" onClick={handleResetOutputDir} disabled={!config || savingOutputDir || !defaultOutputDir}>
             恢复默认目录
+          </button>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+        <p style={{ fontWeight: 600, fontSize: 14, marginBottom: 'var(--sp-2)', color: 'var(--text-primary)' }}>
+          应用更新
+        </p>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 'var(--sp-3)' }}>
+          当前版本：{updateState?.currentVersion || '加载中...'}
+        </p>
+        {updateState?.availableVersion && (
+          <p className="text-muted" style={{ marginBottom: 'var(--sp-2)' }}>
+            可更新到：{updateState.availableVersion}
+          </p>
+        )}
+        <p
+          className={updateState?.status === 'error' ? 'text-error' : updateState?.status === 'downloaded' || updateState?.status === 'up-to-date' ? 'text-success' : 'text-muted'}
+          style={{ marginBottom: 0 }}
+        >
+          {updateState?.message || '正在读取更新状态'}
+          {typeof updateState?.progress === 'number' ? `（${updateState.progress}%）` : ''}
+        </p>
+        <div style={{ display: 'flex', gap: 'var(--sp-3)', marginTop: 'var(--sp-4)', flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary btn-sm" onClick={handleCheckUpdates} disabled={!canCheckUpdates}>
+            {updateState?.status === 'checking' ? '检查中...' : '检查更新'}
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={handleDownloadUpdate} disabled={!canDownloadUpdate}>
+            {updateState?.status === 'downloading' ? '下载中...' : '下载更新'}
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={handleInstallUpdate} disabled={!canInstallUpdate}>
+            立即安装
           </button>
         </div>
       </div>

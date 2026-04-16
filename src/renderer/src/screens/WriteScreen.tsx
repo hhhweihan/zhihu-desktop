@@ -118,6 +118,19 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
   }, [])
 
   useEffect(() => {
+    if (!selectedHistory) {
+      return
+    }
+
+    const stillExists = history.some((item) => item.id === selectedHistory.id)
+    if (!stillExists) {
+      setSelectedHistory(null)
+      setHistoryPreviewContent('')
+      setHistoryPreviewError('')
+    }
+  }, [history, selectedHistory])
+
+  useEffect(() => {
     if (!normalizedTopic) {
       setPlanOptions([])
       setSelectedPlanIndex(0)
@@ -242,6 +255,13 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
   async function handleUseHistory(entry: ArticleHistory) {
     setError('')
     try {
+      const exists = await window.electronAPI.fileExists(entry.mdPath)
+      if (!exists) {
+        onDeleteHistory(entry.id)
+        setError('历史文章对应的本地 Markdown 文件已不存在，已从列表移除')
+        return
+      }
+
       await window.electronAPI.readFile(entry.mdPath)
       onArticleReady(entry.mdPath, entry.title, entry.topic || topic.trim())
     } catch (e: any) {
@@ -250,11 +270,18 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
   }
 
   async function handleBrowseHistory(entry: ArticleHistory) {
-    setSelectedHistory(entry)
-    setLoadingHistoryPreview(true)
-    setHistoryPreviewError('')
-    setHistoryPreviewContent('')
     try {
+      const exists = await window.electronAPI.fileExists(entry.mdPath)
+      if (!exists) {
+        onDeleteHistory(entry.id)
+        setError('历史文章对应的本地 Markdown 文件已不存在，已从列表移除')
+        return
+      }
+
+      setSelectedHistory(entry)
+      setLoadingHistoryPreview(true)
+      setHistoryPreviewError('')
+      setHistoryPreviewContent('')
       const content = await window.electronAPI.readFile(entry.mdPath)
       setHistoryPreviewContent(content)
     } catch (e: any) {

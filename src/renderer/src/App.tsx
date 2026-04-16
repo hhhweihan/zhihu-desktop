@@ -11,13 +11,14 @@ import ToastViewport from './components/ToastViewport'
 type Screen = 'onboarding' | 'write' | 'review' | 'publish'
 
 const HISTORY_KEY = 'zhihu-article-history'
+const MAX_HISTORY_ITEMS = 50
 
 function loadHistory(): ArticleHistory[] {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') } catch { return [] }
 }
 
 function saveHistory(items: ArticleHistory[]) {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, 50)))
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, MAX_HISTORY_ITEMS)))
 }
 
 export default function App() {
@@ -30,11 +31,80 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
 
   useEffect(() => {
+    let disposed = false
+
+    async function reconcileStoredHistory() {
+      const storedHistory = loadHistory()
+      const availableHistory = (
+        await Promise.all(
+          storedHistory.map(async (item) => ((await window.electronAPI.fileExists(item.mdPath)) ? item : null)),
+        )
+      ).filter((item): item is ArticleHistory => item !== null)
+
+      if (availableHistory.length !== storedHistory.length) {
+        saveHistory(availableHistory)
+      }
+
+      if (!disposed) {
+        setHistory(availableHistory)
+      }
+    }
+
     setHistory(loadHistory())
+    void reconcileStoredHistory()
+
     window.electronAPI.loadApiKey().then((key) => {
       if (key) setScreen('write')
     })
+
+    return () => {
+      disposed = true
+    }
   }, [])
+
+  useEffect(() => {
+    if (screen !== 'write') {
+      return
+    }
+
+    let disposed = false
+
+    async function reconcileStoredHistory() {
+      const storedHistory = loadHistory()
+      const availableHistory = (
+        await Promise.all(
+          storedHistory.map(async (item) => ((await window.electronAPI.fileExists(item.mdPath)) ? item : null)),
+        )
+      ).filter((item): item is ArticleHistory => item !== null)
+
+      if (availableHistory.length !== storedHistory.length) {
+        saveHistory(availableHistory)
+      }
+
+      if (!disposed) {
+        setHistory(availableHistory)
+      }
+    }
+
+    const handleFocus = () => {
+      void reconcileStoredHistory()
+    }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void reconcileStoredHistory()
+      }
+    }
+
+    void reconcileStoredHistory()
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      disposed = true
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [screen])
 
   function handleArticleReady(mdPath: string, title: string, topic = '') {
     setArticleMdPath(mdPath)
@@ -43,7 +113,7 @@ export default function App() {
     setHistory((prev) => {
       const nextHistory = [entry, ...prev.filter((item) => item.mdPath !== mdPath)]
       saveHistory(nextHistory)
-      return nextHistory.slice(0, 50)
+      return nextHistory.slice(0, MAX_HISTORY_ITEMS)
     })
     setScreen('review')
   }

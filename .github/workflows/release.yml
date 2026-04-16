@@ -36,6 +36,7 @@ jobs:
           }
 
       - name: Wait for CI Build to finish for this commit
+        id: wait_ci_build
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -69,6 +70,7 @@ jobs:
               }
 
               Write-Host "CI Build completed successfully for $targetSha"
+              "run_id=$($run.id)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
               exit 0
             }
             else {
@@ -87,8 +89,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           workflow: build.yml
-          branch: master
-          commit: ${{ github.sha }}
+          run_id: ${{ steps.wait_ci_build.outputs.run_id }}
           name: zhihu-desktop-windows-${{ github.sha }}
           path: release-artifacts
           if_no_artifact_found: fail

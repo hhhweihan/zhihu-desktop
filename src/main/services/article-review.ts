@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import fs from 'node:fs'
+import { retryTaskOperation, type TaskReporter } from './task-runtime'
 
 export interface ReviewIssue {
   type: 'exaggeration' | 'ai-tone' | 'unreal' | 'time-error' | 'formality' | 'confidence'
@@ -22,19 +23,19 @@ export interface ReviewArticleOptions {
   filePath: string
   apiKey: string
   baseUrl?: string
-  onLog?: (line: string) => void
+  reporter?: TaskReporter
 }
 
 interface ParsedTextResult {
   text: string
 }
 
-function emitStep(onLog: ReviewArticleOptions['onLog'], step: number, label: string): void {
-  onLog?.(`__STEP__review:${step}:${label}`)
+function emitStep(reporter: TaskReporter | undefined, step: number, label: string): void {
+  reporter?.emitStep(step, 5, label)
 }
 
-function emitLog(onLog: ReviewArticleOptions['onLog'], message: string): void {
-  onLog?.(message)
+function emitLog(reporter: TaskReporter | undefined, level: 'info' | 'success' | 'warning' | 'error', message: string, important = true): void {
+  reporter?.emitLog(level, message, important)
 }
 
 function getTextContent(response: Anthropic.Messages.Message): string {
@@ -53,7 +54,7 @@ function parseJsonObject<T>(input: string, fallback: T): T {
 }
 
 export async function reviewArticle(options: ReviewArticleOptions): Promise<ReviewReport> {
-  emitStep(options.onLog, 1, '读取文章')
+  emitStep(options.reporter, 1, '读取文章')
   const content = fs.readFileSync(options.filePath, 'utf-8')
 
   const titleMatch = content.match(/^# (.+)$/m)
@@ -66,18 +67,18 @@ export async function reviewArticle(options: ReviewArticleOptions): Promise<Revi
   }
   const client = new Anthropic(clientOptions)
 
-  emitLog(options.onLog, '▶ 阶段二：内容审核开始')
-  emitLog(options.onLog, '')
+  emitLog(options.reporter, 'info', '阶段 2/5：内容审核开始')
 
-  emitStep(options.onLog, 2, '检查表述准确性')
-  emitLog(options.onLog, '检查中：夸大表述检测...')
-  const exaggerationCheck = await client.messages.create({
-    model: 'claude-opus-4-6',
-    max_tokens: 1000,
-    messages: [
-      {
-        role: 'user',
-        content: `分析以下技术文章，找出夸大或绝对化的表述。返回JSON格式。
+  emitStep(options.reporter, 2, '检查表述准确性')
+  emitLog(options.reporter, 'info', '检查中：夸大表述检测...')
+  const exaggerationCheck = await retryTaskOperation(
+    () => client.messages.create({
+      model: 'claude-opus-4-6',
+      max_tokens: 1000,
+      messages: [
+        {
+          role: 'user',
+          content: `分析以下技术文章，找出夸大或绝对化的表述。返回JSON格式。
 
 文章：
 ${body.substring(0, 2000)}
@@ -94,24 +95,27 @@ ${body.substring(0, 2000)}
   ],
   "hasMajorIssues": true/false
 }`,
-      },
-    ],
-  })
+        },
+      ],
+    }),
+    { attempts: 2, onRetry: () => emitLog(options.reporter, 'warning', '审核请求异常，正在重试...') },
+  )
 
   const exaggerationData = parseJsonObject<{ issues?: Array<{ text: string; reason: string; fix: string }> }>(
     getTextContent(exaggerationCheck),
     { issues: [] },
   )
 
-  emitStep(options.onLog, 3, '检测 AI 腔调')
-  emitLog(options.onLog, '检查中：AI生成痕迹检测...')
-  const aiToneCheck = await client.messages.create({
-    model: 'claude-opus-4-6',
-    max_tokens: 1000,
-    messages: [
-      {
-        role: 'user',
-        content: `分析这段技术文章，找出AI生成的常见特征。返回JSON。
+  emitStep(options.reporter, 3, '检测 AI 腔调')
+  emitLog(options.reporter, 'info', '检查中：AI生成痕迹检测...')
+  const aiToneCheck = await retryTaskOperation(
+    () => client.messages.create({
+      model: 'claude-opus-4-6',
+      max_tokens: 1000,
+      messages: [
+        {
+          role: 'user',
+          content: `分析这段技术文章，找出AI生成的常见特征。返回JSON。
 
 文章片段：
 ${body.substring(0, 1500)}
@@ -131,27 +135,30 @@ AI生成的常见特征：
   ],
   "aiScorePercentage": 60
 }`,
-      },
-    ],
-  })
+        },
+      ],
+    }),
+    { attempts: 2, onRetry: () => emitLog(options.reporter, 'warning', '审核请求异常，正在重试...') },
+  )
 
   const aiToneData = parseJsonObject<{
     aiToneIssues?: Array<{ sentence: string; problem: string; humanize: string }>
     aiScorePercentage?: number
   }>(getTextContent(aiToneCheck), { aiToneIssues: [], aiScorePercentage: 0 })
 
-  emitLog(options.onLog, '检查中：时间真实性核对...')
+  emitLog(options.reporter, 'info', '检查中：时间真实性核对...')
   const timeMatches = body.match(/(\d{4}年\d{1,2}月|\d{4}-\d{2}|最近|上周|上月|今年|去年|前几天|几周前)/g)
   const timeIssues: Array<{ timePhrase: string; problem: string; suggestion: string }> = []
 
   if (timeMatches && timeMatches.length > 0) {
-    const timeCheck = await client.messages.create({
-      model: 'claude-opus-4-6',
-      max_tokens: 800,
-      messages: [
-        {
-          role: 'user',
-          content: `文章中提到的时间表述，根据你的知识截止日期（2025年1月）进行真实性检查。
+    const timeCheck = await retryTaskOperation(
+      () => client.messages.create({
+        model: 'claude-opus-4-6',
+        max_tokens: 800,
+        messages: [
+          {
+            role: 'user',
+            content: `文章中提到的时间表述，根据你的知识截止日期（2025年1月）进行真实性检查。
 
 时间表述：${timeMatches.join(', ')}
 
@@ -165,9 +172,11 @@ AI生成的常见特征：
     {"timePhrase": "具体表述", "problem": "问题", "suggestion": "改为"}
   ]
 }`,
-        },
-      ],
-    })
+          },
+        ],
+      }),
+      { attempts: 2, onRetry: () => emitLog(options.reporter, 'warning', '审核请求异常，正在重试...') },
+    )
 
     const timeData = parseJsonObject<{ timeIssues?: Array<{ timePhrase: string; problem: string; suggestion: string }> }>(
       getTextContent(timeCheck),
@@ -176,15 +185,16 @@ AI生成的常见特征：
     timeIssues.push(...(timeData.timeIssues ?? []))
   }
 
-  emitStep(options.onLog, 4, '生成综合评分')
-  emitLog(options.onLog, '检查中：综合评估...')
-  const overallReview = await client.messages.create({
-    model: 'claude-opus-4-6',
-    max_tokens: 1500,
-    messages: [
-      {
-        role: 'user',
-        content: `作为资深技术博主的编辑，评估这篇文章的"人味度"和真实性。
+  emitStep(options.reporter, 4, '生成综合评分')
+  emitLog(options.reporter, 'info', '检查中：综合评估...')
+  const overallReview = await retryTaskOperation(
+    () => client.messages.create({
+      model: 'claude-opus-4-6',
+      max_tokens: 1500,
+      messages: [
+        {
+          role: 'user',
+          content: `作为资深技术博主的编辑，评估这篇文章的"人味度"和真实性。
 
 文章标题：${title}
 文章摘要：
@@ -211,9 +221,11 @@ ${body.substring(0, 1500)}
   ],
   "summary": "整体评价..."
 }`,
-      },
-    ],
-  })
+        },
+      ],
+    }),
+    { attempts: 2, onRetry: () => emitLog(options.reporter, 'warning', '审核请求异常，正在重试...') },
+  )
 
   const overallData = parseJsonObject<{
     authenticityScore?: number
@@ -264,7 +276,8 @@ ${body.substring(0, 1500)}
   const readabilityScore = overallData.readabilityScore ?? 80
   const overallScore = Math.round(authenticityScore * 0.4 + humanTouchScore * 0.4 + readabilityScore * 0.2)
 
-  emitStep(options.onLog, 5, '审核完成')
+  emitStep(options.reporter, 5, '审核完成')
+  emitLog(options.reporter, 'success', '审核完成')
 
   return {
     title,

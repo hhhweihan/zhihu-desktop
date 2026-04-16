@@ -1,4 +1,6 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
+import type { TaskEvent } from '../shared/task-events'
+import type { CoverGenerationResult, CoverTemplate } from '../main/services/article-cover'
 
 declare global {
   interface Window {
@@ -24,12 +26,15 @@ declare global {
       generateArticle: (topic: string, plan?: ArticlePlan) => Promise<{ title: string; mdPath: string }>
       cancelGenerate: () => Promise<void>
       reviewArticle: (mdPath: string) => Promise<ReviewReport>
+      generateArticleCover: (payload: { mdPath: string; template: CoverTemplate; title?: string; subtitle?: string }) => Promise<CoverGenerationResult>
       publishArticle: (mdPath: string, autoSubmit: boolean) => Promise<{ status: string }>
       readFile: (filePath: string) => Promise<string>
+      fileExists: (filePath: string) => Promise<boolean>
       writeFile: (filePath: string, content: string) => Promise<void>
       deleteFile: (filePath: string) => Promise<void>
       onGenerateChunk: (cb: (chunk: string) => void) => () => void
       onScriptLog: (cb: (msg: string) => void) => () => void
+      onTaskEvent: (cb: (event: TaskEvent) => void) => () => void
       onAppUpdateState: (cb: (state: AppUpdateState) => void) => () => void
     }
   }
@@ -46,5 +51,16 @@ declare global {
     displayName?: string
     currentUrl?: string
     reason?: string
+  }
+
+  type CoverTemplate = 'comparison' | 'minimalist' | 'feature'
+
+  interface CoverGenerationResult {
+    title: string
+    subtitle?: string
+    template: CoverTemplate
+    svgPath: string
+    pngPath: string
+    previewDataUrl: string
   }
 }

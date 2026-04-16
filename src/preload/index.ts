@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AppUpdateState } from '../main/services/app-updater'
 import type { ArticlePlan } from '../main/services/article-generation'
+import type { TaskEvent } from '../shared/task-events'
+import type { CoverGenerationResult, CoverTemplate } from '../main/services/article-cover'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // API Key
@@ -31,9 +33,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   generateArticle: (topic: string, plan?: ArticlePlan) => ipcRenderer.invoke('article:generate', topic, plan),
   cancelGenerate: () => ipcRenderer.invoke('article:cancel'),
   reviewArticle: (mdPath: string) => ipcRenderer.invoke('article:review', mdPath),
+  generateArticleCover: (payload: { mdPath: string; template: CoverTemplate; title?: string; subtitle?: string }) =>
+    ipcRenderer.invoke('article:generate-cover', payload) as Promise<CoverGenerationResult>,
   publishArticle: (mdPath: string, autoSubmit: boolean) =>
     ipcRenderer.invoke('article:publish', mdPath, autoSubmit),
   readFile: (filePath: string) => ipcRenderer.invoke('file:read', filePath),
+  fileExists: (filePath: string) => ipcRenderer.invoke('file:exists', filePath),
   writeFile: (filePath: string, content: string) => ipcRenderer.invoke('file:write', filePath, content),
   deleteFile: (filePath: string) => ipcRenderer.invoke('file:delete', filePath),
 
@@ -47,6 +52,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_: unknown, msg: string) => cb(msg)
     ipcRenderer.on('script:log', handler)
     return () => ipcRenderer.removeListener('script:log', handler)
+  },
+  onTaskEvent: (cb: (event: TaskEvent) => void) => {
+    const handler = (_: unknown, event: TaskEvent) => cb(event)
+    ipcRenderer.on('task:event', handler)
+    return () => ipcRenderer.removeListener('task:event', handler)
   },
   onAppUpdateState: (cb: (state: AppUpdateState) => void) => {
     const handler = (_: unknown, state: AppUpdateState) => cb(state)

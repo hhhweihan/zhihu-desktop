@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import fs from 'node:fs'
 import path from 'node:path'
+import { createTaskError, retryTaskOperation, type TaskReporter } from './task-runtime'
 
 export interface ArticlePlan {
   title: string
@@ -15,7 +16,7 @@ export interface GenerateArticleOptions {
   model: string
   baseUrl?: string
   plan?: ArticlePlan
-  onLog?: (line: string) => void
+  reporter?: TaskReporter
 }
 
 export interface GenerateArticleResult {
@@ -39,12 +40,12 @@ interface ParsedTextResult {
   text: string
 }
 
-function emitLog(onLog: GenerateArticleOptions['onLog'], message: string): void {
-  onLog?.(message)
+function emitLog(reporter: TaskReporter | undefined, level: 'info' | 'success' | 'warning' | 'error', message: string, important = true): void {
+  reporter?.emitLog(level, message, important)
 }
 
-function emitStep(onLog: GenerateArticleOptions['onLog'], step: number, label: string): void {
-  onLog?.(`__STEP__write:${step}:${label}`)
+function emitStep(reporter: TaskReporter | undefined, step: number, label: string): void {
+  reporter?.emitStep(step, 5, label)
 }
 
 function getTitleFromMarkdown(content: string, fallbackTitle: string): string {
@@ -156,17 +157,20 @@ ${plan.outline.map((item, index) => `${index + 1}. ${item}`).join('\n')}
 export async function suggestArticlePlans(options: SuggestArticlePlansOptions): Promise<ArticlePlan[]> {
   const client = createAnthropicClient(options.apiKey, options.baseUrl)
   const model = options.model || 'claude-sonnet-4-6'
-  const response = await client.messages.create({
-    model,
-    max_tokens: 1400,
-    system: buildSystemPrompt(),
-    messages: [
-      {
-        role: 'user',
-        content: buildSuggestionPrompt(options.topic),
-      },
-    ],
-  })
+  const response = await retryTaskOperation(
+    () => client.messages.create({
+      model,
+      max_tokens: 1400,
+      system: buildSystemPrompt(),
+      messages: [
+        {
+          role: 'user',
+          content: buildSuggestionPrompt(options.topic),
+        },
+      ],
+    }),
+    { attempts: 2 },
+  )
 
   const data = parseJsonObject<{ plans?: Array<Partial<ArticlePlan>> }>(getTextContent(response), { plans: [] })
   const plans = (data.plans ?? [])
@@ -188,34 +192,40 @@ export function startArticleGeneration(options: GenerateArticleOptions): Running
   let aborted = false
 
   const promise = (async () => {
-    emitStep(options.onLog, 1, '整理写作要求')
-    emitLog(options.onLog, `▶ 开始生成文章：${options.topic}`)
-    emitLog(options.onLog, `使用模型：${model}`)
+    emitStep(options.reporter, 1, '整理写作要求')
+    emitLog(options.reporter, 'info', `开始生成文章：${options.topic}`)
+    emitLog(options.reporter, 'info', `使用模型：${model}`)
     if (options.plan) {
-      emitLog(options.onLog, `已选方案：${options.plan.title}`)
+      emitLog(options.reporter, 'info', `已选方案：${options.plan.title}`)
     }
-    emitLog(options.onLog, '阶段 1/5：整理写作要求')
+    emitLog(options.reporter, 'info', '阶段 1/5：整理写作要求')
 
-    emitStep(options.onLog, 2, '构建提示词')
-    emitLog(options.onLog, '阶段 2/5：构建提示词并发起模型请求')
+    emitStep(options.reporter, 2, '构建提示词')
+    emitLog(options.reporter, 'info', '阶段 2/5：构建提示词并发起模型请求')
 
     let fullText = ''
     let nextProgressChars = 600
 
-    stream = await client.messages.stream({
-      model,
-      max_tokens: 4096,
-      system: buildSystemPrompt(),
-      messages: [
-        {
-          role: 'user',
-          content: buildUserPrompt(options.topic, options.plan),
-        },
-      ],
-    })
+    stream = await retryTaskOperation(
+      async () => client.messages.stream({
+        model,
+        max_tokens: 4096,
+        system: buildSystemPrompt(),
+        messages: [
+          {
+            role: 'user',
+            content: buildUserPrompt(options.topic, options.plan),
+          },
+        ],
+      }),
+      {
+        attempts: 2,
+        onRetry: () => emitLog(options.reporter, 'warning', '模型连接异常，正在重试...', true),
+      },
+    )
 
-    emitStep(options.onLog, 3, '流式生成正文')
-    emitLog(options.onLog, '阶段 3/5：模型开始流式生成正文')
+    emitStep(options.reporter, 3, '流式生成正文')
+    emitLog(options.reporter, 'info', '阶段 3/5：模型开始流式生成正文')
 
     try {
       for await (const chunk of stream) {
@@ -231,23 +241,35 @@ export function startArticleGeneration(options: GenerateArticleOptions): Running
         fullText += text
 
         if (fullText.length >= nextProgressChars) {
-          emitLog(options.onLog, `写作中：已生成约 ${fullText.length} 字符`)
+          emitLog(options.reporter, 'info', `写作中：已生成约 ${fullText.length} 字符`)
           nextProgressChars += 600
         }
       }
     } catch (error) {
       if (aborted) {
-        throw new Error('生成已取消')
+        throw createTaskError({
+          code: 'TASK_CANCELLED',
+          task: 'generate',
+          userMessage: '生成已取消',
+          cancelled: true,
+          retryable: true,
+        })
       }
       throw error
     }
 
     if (aborted) {
-      throw new Error('生成已取消')
+      throw createTaskError({
+        code: 'TASK_CANCELLED',
+        task: 'generate',
+        userMessage: '生成已取消',
+        cancelled: true,
+        retryable: true,
+      })
     }
 
-    emitStep(options.onLog, 4, '保存文章文件')
-    emitLog(options.onLog, '阶段 4/5：整理标题并落盘保存')
+    emitStep(options.reporter, 4, '保存文章文件')
+    emitLog(options.reporter, 'info', '阶段 4/5：整理标题并落盘保存')
 
     const title = getTitleFromMarkdown(fullText, options.plan?.title || options.topic)
     fs.mkdirSync(options.outputDir, { recursive: true })
@@ -256,9 +278,9 @@ export function startArticleGeneration(options: GenerateArticleOptions): Running
     const mdPath = path.join(options.outputDir, `${date}-${safeName}.md`)
     fs.writeFileSync(mdPath, fullText, 'utf-8')
 
-    emitStep(options.onLog, 5, '生成完成')
-    emitLog(options.onLog, '阶段 5/5：生成完成')
-    emitLog(options.onLog, `✓ 文章已保存：${mdPath}`)
+    emitStep(options.reporter, 5, '生成完成')
+    emitLog(options.reporter, 'info', '阶段 5/5：生成完成')
+    emitLog(options.reporter, 'success', `文章已保存：${mdPath}`)
     return { title, mdPath }
   })()
 

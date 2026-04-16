@@ -289,11 +289,161 @@
   font-size: 12px;
 }
 
+.cover-card {
+  border-color: rgba(59, 130, 246, 0.22);
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.06), rgba(255, 255, 255, 0.02));
+}
+
+.cover-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  align-items: flex-start;
+}
+
+.cover-mode-toggle {
+  display: inline-flex;
+  gap: var(--sp-2);
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.42);
+  margin-top: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.cover-mode-toggle__item {
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cover-mode-toggle__item--active {
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+}
+
+.cover-template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+
+.cover-template-card {
+  width: 100%;
+  text-align: left;
+  padding: var(--sp-4);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(17, 24, 39, 0.52);
+  color: inherit;
+  cursor: pointer;
+}
+
+.cover-template-card--active {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: rgba(30, 41, 59, 0.86);
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.18);
+}
+
+.cover-template-card__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.cover-template-card__desc {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cover-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
+}
+
+.cover-preview-panel {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-items: start;
+  margin-top: var(--sp-5);
+}
+
+.cover-preview-panel__meta {
+  min-width: 0;
+}
+
+.cover-preview-frame {
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.cover-preview-image {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .login-state-card {
   padding: var(--sp-4);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.02);
+}
+
+.cover-upload-reminder {
+  padding: var(--sp-4);
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.08), rgba(255, 255, 255, 0.02));
+}
+
+.cover-upload-reminder__header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  align-items: flex-start;
+}
+
+.cover-upload-reminder__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.cover-upload-reminder__hint {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cover-upload-reminder__path {
+  margin: 12px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.cover-upload-reminder__tip {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .login-state-card__header {
@@ -538,11 +688,34 @@
   margin-bottom: var(--sp-4);
 }
 
+.history-card--collapsed {
+  border-color: rgba(59, 130, 246, 0.18);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.06), rgba(15, 23, 42, 0.18));
+}
+
+.history-card--collapsed .history-card__header {
+  margin-bottom: 0;
+  align-items: center;
+}
+
 .history-toolbar {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
   flex-wrap: wrap;
+}
+
+.history-card__summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.24);
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .history-search-input {
@@ -692,7 +865,8 @@
 
 @media (max-width: 900px) {
   .activity-grid,
-  .preview-layout {
+  .preview-layout,
+  .cover-preview-panel {
     grid-template-columns: 1fr;
   }
 

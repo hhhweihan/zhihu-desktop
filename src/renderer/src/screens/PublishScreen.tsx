@@ -2,12 +2,18 @@
 import { useState, useEffect } from 'react'
 import ProgressSteps from '../components/ProgressSteps'
 import LogPanel, { type LogEntry } from '../components/LogPanel'
+import { createLogEntryFromTaskEvent, getTaskErrorMessage, isTaskEventFor } from '../utils/task-events'
 
 interface Props {
   mdPath: string
   title: string
   onDone: () => void
   onBack: () => void
+}
+
+interface CoverFileState {
+  pngPath?: string
+  svgPath?: string
 }
 
 const PUBLISH_STEPS = [
@@ -17,40 +23,6 @@ const PUBLISH_STEPS = [
   { label: '完成' },
 ]
 
-function parsePublishLog(msg: string): { step?: number; line?: LogEntry } {
-  const line = msg.trim()
-  if (!line) return {}
-
-  const stepMatch = line.match(/^__STEP__publish:(\d+):(.+)$/)
-  if (stepMatch) {
-    const step = Number(stepMatch[1])
-    const label = stepMatch[2].trim()
-    return { step, line: { message: `阶段更新：${label}`, timestamp: Date.now(), important: true, tone: 'step' } }
-  }
-
-  if (line.startsWith('✓ ')) {
-    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'success' } }
-  }
-  if (line.startsWith('✗ ') || line.startsWith('Error:')) {
-    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'error' } }
-  }
-  if (line.startsWith('⚠ ')) {
-    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'warning' } }
-  }
-  if (line.startsWith('▶ ')) {
-    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'info' } }
-  }
-
-  return {
-    line: {
-      message: line,
-      timestamp: Date.now(),
-      important: false,
-      tone: 'neutral',
-    },
-  }
-}
-
 export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) {
   const [status, setStatus] = useState<'idle' | 'publishing' | 'done' | 'error'>('idle')
   const [error, setError] = useState('')
@@ -59,15 +31,17 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
   const [activeStep, setActiveStep] = useState(0)
   const [zhihuState, setZhihuState] = useState<ZhihuLoginState | null>(null)
   const [checkingZhihuState, setCheckingZhihuState] = useState(false)
+  const [coverFiles, setCoverFiles] = useState<CoverFileState | null>(null)
 
   useEffect(() => {
-    const off = window.electronAPI.onScriptLog((msg) => {
-      const parsed = parsePublishLog(msg)
-      if (parsed.step) {
-        setActiveStep(Math.max(0, Math.min(PUBLISH_STEPS.length - 1, parsed.step - 1)))
+    const off = window.electronAPI.onTaskEvent((event) => {
+      if (!isTaskEventFor('publish', event)) return
+      if (event.type === 'step') {
+        setActiveStep(Math.max(0, Math.min(PUBLISH_STEPS.length - 1, event.step - 1)))
       }
-      if (!parsed.line) return
-      setLogs((prev) => [...prev.slice(-79), parsed.line!])
+      const line = createLogEntryFromTaskEvent(event)
+      if (!line) return
+      setLogs((prev) => [...prev.slice(-79), line])
     })
     return off
   }, [])
@@ -75,6 +49,31 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
   useEffect(() => {
     void refreshZhihuState()
   }, [])
+
+  useEffect(() => {
+    void detectCoverFiles()
+  }, [mdPath])
+
+  async function detectCoverFiles() {
+    const basePath = mdPath.replace(/\.md$/i, '')
+    const pngPath = `${basePath}.cover.png`
+    const svgPath = `${basePath}.cover.svg`
+
+    const [hasPng, hasSvg] = await Promise.all([
+      window.electronAPI.fileExists(pngPath),
+      window.electronAPI.fileExists(svgPath),
+    ])
+
+    if (!hasPng && !hasSvg) {
+      setCoverFiles(null)
+      return
+    }
+
+    setCoverFiles({
+      pngPath: hasPng ? pngPath : undefined,
+      svgPath: hasSvg ? svgPath : undefined,
+    })
+  }
 
   async function refreshZhihuState() {
     setCheckingZhihuState(true)
@@ -104,7 +103,7 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
       await window.electronAPI.publishArticle(mdPath, autoSubmit)
       setStatus('done')
     } catch (e: any) {
-      setError(e.message)
+      setError(getTaskErrorMessage(e))
       setStatus('error')
     }
   }
@@ -136,6 +135,24 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
           <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 'var(--sp-5)' }}>
             确认后将自动打开知乎编辑器并填充内容。
           </p>
+          {coverFiles && (
+            <div className="cover-upload-reminder" style={{ marginBottom: 'var(--sp-5)' }}>
+              <div className="cover-upload-reminder__header">
+                <div>
+                  <p className="cover-upload-reminder__title">已生成封面文件</p>
+                  <p className="cover-upload-reminder__hint">正文填充完成后，请在知乎编辑器中手动上传封面图片，再检查后发布。</p>
+                </div>
+                <span className="status-badge status-badge--success">可上传</span>
+              </div>
+              {coverFiles.pngPath && (
+                <p className="cover-upload-reminder__path">PNG：{coverFiles.pngPath}</p>
+              )}
+              {coverFiles.svgPath && (
+                <p className="cover-upload-reminder__path">SVG：{coverFiles.svgPath}</p>
+              )}
+              <p className="cover-upload-reminder__tip">建议优先上传 PNG；SVG 可作为留档源文件保留。</p>
+            </div>
+          )}
           <div className="login-state-card" style={{ marginBottom: 'var(--sp-5)' }}>
             <div className="login-state-card__header">
               <div>
@@ -198,7 +215,7 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
           <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 'var(--sp-6)' }}>
             {autoSubmitted
               ? '你的文章已自动提交到知乎，稍后可在「我的内容」查看。'
-              : '请切换到 Edge，检查内容后手动点击发布按钮。'}
+              : `请切换到 Edge，检查内容${coverFiles?.pngPath ? '并上传封面图片后' : '后'}手动点击发布按钮。`}
           </p>
           <button className="btn btn-primary btn-lg" onClick={onDone}>
             写下一篇 →

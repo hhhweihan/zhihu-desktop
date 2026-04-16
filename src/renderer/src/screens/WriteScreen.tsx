@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import ProgressSteps from '../components/ProgressSteps'
 import MarkdownPreview from '../components/MarkdownPreview'
 import LogPanel, { type LogEntry } from '../components/LogPanel'
+import { createLogEntryFromTaskEvent, getTaskErrorMessage, isTaskEventFor } from '../utils/task-events'
 
 interface Props {
   history: ArticleHistory[]
@@ -18,41 +19,12 @@ const WRITE_STEPS = [
   { label: '生成完成' },
 ]
 
-function normalizeLogLine(message: string): string | null {
-  const line = message.trim()
-  if (!line || line.startsWith('__RESULT__')) return null
-  return line
-}
-
-function parseWriteLog(msg: string): { step?: number; line?: LogEntry } {
-  const line = normalizeLogLine(msg)
-  if (!line) return {}
-
-  const stepMatch = line.match(/^__STEP__write:(\d+):(.+)$/)
-  if (stepMatch) {
-    const step = Number(stepMatch[1])
-    const label = stepMatch[2].trim()
-    return {
-      step,
-      line: { message: `阶段更新：${label}`, timestamp: Date.now(), important: true, tone: 'step' },
-    }
-  }
-
-  if (line.startsWith('✓ ')) {
-    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'success' } }
-  }
-  if (line.startsWith('✗ ') || line.startsWith('Error:')) {
-    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'error' } }
-  }
-  if (line.startsWith('⚠ ')) {
-    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'warning' } }
-  }
-  if (line.startsWith('▶ ') || line.startsWith('使用模型：') || line.startsWith('已选方案：') || line.startsWith('写作中：') || line.startsWith('阶段 ')) {
-    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'info' } }
-  }
-
-  return { line: { message: line, timestamp: Date.now(), important: false, tone: 'neutral' } }
-}
+const HISTORY_PANEL_VISIBILITY_KEY = 'zhihu-history-panel-visible'
+const COVER_TEMPLATE_OPTIONS: Array<{ value: CoverTemplate; label: string; description: string }> = [
+  { value: 'comparison', label: '对比型', description: '适合方案对比、路线选择、成本分析类文章' },
+  { value: 'minimalist', label: '极简型', description: '适合概念讲解、总结盘点和轻量教程' },
+  { value: 'feature', label: '主视觉型', description: '适合教程、实战指南和能力介绍类文章' },
+]
 
 function extractTitleFromMarkdown(content: string, fallbackTitle: string): string {
   const titleMatch = content.match(/^#\s+(.+)$/m)
@@ -73,6 +45,15 @@ function formatHistoryDate(timestamp: number): string {
   })
 }
 
+function loadHistoryPanelVisible(): boolean {
+  try {
+    const saved = localStorage.getItem(HISTORY_PANEL_VISIBILITY_KEY)
+    return saved === null ? true : saved === 'true'
+  } catch {
+    return true
+  }
+}
+
 export default function WriteScreen({ history, onArticleReady, onDeleteHistory }: Props) {
   const [topic, setTopic] = useState('')
   const [generating, setGenerating] = useState(false)
@@ -91,11 +72,19 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
   const [loadingHistoryPreview, setLoadingHistoryPreview] = useState(false)
   const [historySearch, setHistorySearch] = useState('')
   const [showAllHistory, setShowAllHistory] = useState(false)
+  const [showHistoryPanel, setShowHistoryPanel] = useState(loadHistoryPanelVisible)
   const [planOptions, setPlanOptions] = useState<ArticlePlan[]>([])
   const [planError, setPlanError] = useState('')
   const [loadingPlans, setLoadingPlans] = useState(false)
   const [selectedPlanIndex, setSelectedPlanIndex] = useState(0)
   const [planTopic, setPlanTopic] = useState('')
+  const [assistCover, setAssistCover] = useState(false)
+  const [coverTemplate, setCoverTemplate] = useState<CoverTemplate>('comparison')
+  const [coverTitle, setCoverTitle] = useState('')
+  const [coverSubtitle, setCoverSubtitle] = useState('')
+  const [generatingCover, setGeneratingCover] = useState(false)
+  const [coverError, setCoverError] = useState('')
+  const [coverResult, setCoverResult] = useState<CoverGenerationResult | null>(null)
   const cancelledRef = useRef(false)
 
   const normalizedTopic = normalizeTopic(topic)
@@ -116,13 +105,14 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
   const shouldShowHistoryLibrary = !hasTypedTopic
 
   useEffect(() => {
-    const off = window.electronAPI.onScriptLog((msg) => {
-      const parsed = parseWriteLog(msg)
-      if (parsed.step) {
-        setActiveStep(Math.max(0, Math.min(WRITE_STEPS.length - 1, parsed.step - 1)))
+    const off = window.electronAPI.onTaskEvent((event) => {
+      if (!isTaskEventFor('generate', event)) return
+      if (event.type === 'step') {
+        setActiveStep(Math.max(0, Math.min(WRITE_STEPS.length - 1, event.step - 1)))
       }
-      if (!parsed.line) return
-      setLogs((prev) => [...prev.slice(-79), parsed.line!])
+      const line = createLogEntryFromTaskEvent(event)
+      if (!line) return
+      setLogs((prev) => [...prev.slice(-79), line])
     })
     return off
   }, [])
@@ -187,9 +177,15 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
       }
       setPreviewTitle(result.title)
       setPreviewMdPath(result.mdPath)
+      setAssistCover(false)
+      setCoverTemplate('comparison')
+      setCoverTitle(result.title)
+      setCoverSubtitle('')
+      setCoverError('')
+      setCoverResult(null)
       setShowPreview(true)
     } catch (e: any) {
-      if (!cancelledRef.current) setError(e.message)
+      if (!cancelledRef.current) setError(getTaskErrorMessage(e))
     } finally {
       setGenerating(false)
     }
@@ -209,11 +205,37 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
       const nextTitle = extractTitleFromMarkdown(previewContent, previewTitle)
       await window.electronAPI.writeFile(previewMdPath, previewContent)
       setPreviewTitle(nextTitle)
+      if (!coverTitle.trim()) {
+        setCoverTitle(nextTitle)
+      }
       onArticleReady(previewMdPath, nextTitle, topic.trim())
     } catch (e: any) {
-      setError(e.message)
+      setError(getTaskErrorMessage(e))
     } finally {
       setSavingPreview(false)
+    }
+  }
+
+  async function handleGenerateCover() {
+    if (!previewMdPath) return
+
+    setGeneratingCover(true)
+    setCoverError('')
+    try {
+      await window.electronAPI.writeFile(previewMdPath, previewContent)
+      const result = await window.electronAPI.generateArticleCover({
+        mdPath: previewMdPath,
+        template: coverTemplate,
+        title: coverTitle.trim() || previewTitle,
+        subtitle: coverSubtitle.trim() || undefined,
+      })
+      setCoverTitle(result.title)
+      setCoverSubtitle(result.subtitle || '')
+      setCoverResult(result)
+    } catch (e: any) {
+      setCoverError(getTaskErrorMessage(e))
+    } finally {
+      setGeneratingCover(false)
     }
   }
 
@@ -223,7 +245,7 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
       await window.electronAPI.readFile(entry.mdPath)
       onArticleReady(entry.mdPath, entry.title, entry.topic || topic.trim())
     } catch (e: any) {
-      setError(e.message || '历史文章读取失败，请强制重新生成')
+      setError(getTaskErrorMessage(e) || '历史文章读取失败，请强制重新生成')
     }
   }
 
@@ -236,7 +258,7 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
       const content = await window.electronAPI.readFile(entry.mdPath)
       setHistoryPreviewContent(content)
     } catch (e: any) {
-      setHistoryPreviewError(e.message || '读取历史文章失败')
+      setHistoryPreviewError(getTaskErrorMessage(e) || '读取历史文章失败')
     } finally {
       setLoadingHistoryPreview(false)
     }
@@ -256,8 +278,20 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
         setHistoryPreviewError('')
       }
     } catch (e: any) {
-      setError(e.message || '删除历史记录失败')
+      setError(getTaskErrorMessage(e) || '删除历史记录失败')
     }
+  }
+
+  function handleToggleHistoryPanel() {
+    setShowHistoryPanel((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem(HISTORY_PANEL_VISIBILITY_KEY, String(next))
+      } catch {
+        // Ignore storage failures and keep the in-memory state.
+      }
+      return next
+    })
   }
 
   async function handlePrimaryAction(forceRegenerate = false) {
@@ -300,6 +334,102 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
         <div className="card card-sm" style={{ marginBottom: 'var(--sp-4)' }}>
           <p className="text-muted" style={{ marginBottom: 'var(--sp-1)' }}>文件路径</p>
           <p style={{ margin: 0, color: 'var(--text-secondary)', wordBreak: 'break-all', fontSize: 13 }}>{previewMdPath}</p>
+        </div>
+        <div className="card cover-card" style={{ marginBottom: 'var(--sp-4)' }}>
+          <div className="cover-card__header">
+            <div>
+              <p className="preview-card__title">封面图片</p>
+              <p className="preview-card__hint">你可以决定是否让我协助生成并保存一张本地封面，文件会保存到文章同目录。</p>
+            </div>
+          </div>
+
+          <div className="cover-mode-toggle">
+            <button
+              type="button"
+              className={`cover-mode-toggle__item${assistCover ? '' : ' cover-mode-toggle__item--active'}`}
+              onClick={() => {
+                setAssistCover(false)
+                setCoverError('')
+              }}
+            >
+              暂不生成封面
+            </button>
+            <button
+              type="button"
+              className={`cover-mode-toggle__item${assistCover ? ' cover-mode-toggle__item--active' : ''}`}
+              onClick={() => {
+                setAssistCover(true)
+                if (!coverTitle.trim()) {
+                  setCoverTitle(previewTitle)
+                }
+              }}
+            >
+              协助生成并保存封面
+            </button>
+          </div>
+
+          {assistCover && (
+            <>
+              <div className="cover-template-grid">
+                {COVER_TEMPLATE_OPTIONS.map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    className={`cover-template-card${coverTemplate === item.value ? ' cover-template-card--active' : ''}`}
+                    onClick={() => setCoverTemplate(item.value)}
+                  >
+                    <p className="cover-template-card__title">{item.label}</p>
+                    <p className="cover-template-card__desc">{item.description}</p>
+                  </button>
+                ))}
+              </div>
+
+              <div className="cover-form-grid">
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="label">封面标题</label>
+                  <input
+                    className="input"
+                    value={coverTitle}
+                    onChange={(event) => setCoverTitle(event.target.value)}
+                    placeholder="默认使用文章标题"
+                  />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="label">封面副标题</label>
+                  <input
+                    className="input"
+                    value={coverSubtitle}
+                    onChange={(event) => setCoverSubtitle(event.target.value)}
+                    placeholder="可选，不填则由模板使用默认副标题"
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap', marginTop: 'var(--sp-4)' }}>
+                <button className="btn btn-secondary" onClick={handleGenerateCover} disabled={generatingCover}>
+                  {generatingCover ? '生成中...' : coverResult ? '重新生成封面' : '生成封面并保存'}
+                </button>
+                <p className="text-muted" style={{ margin: 0, alignSelf: 'center' }}>
+                  生成后会保存 `.cover.svg` 和 `.cover.png` 两个文件。
+                </p>
+              </div>
+
+              {coverError && <p className="text-error" style={{ marginTop: 'var(--sp-4)', marginBottom: 0 }}>{coverError}</p>}
+
+              {coverResult && (
+                <div className="cover-preview-panel">
+                  <div className="cover-preview-panel__meta">
+                    <p className="text-success" style={{ marginTop: 0 }}>封面已生成并保存</p>
+                    <p className="text-muted" style={{ marginBottom: 'var(--sp-2)' }}>SVG：{coverResult.svgPath}</p>
+                    <p className="text-muted" style={{ marginBottom: 0 }}>PNG：{coverResult.pngPath}</p>
+                  </div>
+                  <div className="cover-preview-frame">
+                    <img src={coverResult.previewDataUrl} alt="生成的封面预览" className="cover-preview-image" />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
         <div className="preview-layout">
           <div className="card preview-editor-card">
@@ -475,63 +605,79 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
       )}
 
       {shouldShowHistoryLibrary && (
-        <div className="card" style={{ marginTop: 'var(--sp-6)' }}>
+        <div className={`card history-card${showHistoryPanel ? '' : ' history-card--collapsed'}`} style={{ marginTop: 'var(--sp-6)' }}>
           <div className="history-card__header">
             <div>
               <p className="history-card__title">历史文章记录</p>
-              <p className="history-card__hint">仅在主题未确定前展示，支持搜索、删除单条和展开全部列表。删除时会同步删除本地 Markdown 文件。</p>
+              <p className="history-card__hint">
+                {showHistoryPanel
+                  ? '仅在主题未确定前展示，支持搜索、删除单条和展开全部列表。删除时会同步删除本地 Markdown 文件。'
+                  : '面板当前已隐藏，需要时可以随时展开查看历史文章记录。'}
+              </p>
             </div>
             <div className="history-toolbar">
-              <input
-                className="input history-search-input"
-                placeholder="搜索标题、主题或文件路径"
-                value={historySearch}
-                onChange={(event) => setHistorySearch(event.target.value)}
-              />
-              {filteredHistory.length > 6 && !normalizedHistorySearch && (
+              {!showHistoryPanel && history.length > 0 && (
+                <span className="history-card__summary">共 {history.length} 条记录</span>
+              )}
+              {showHistoryPanel && (
+                <input
+                  className="input history-search-input"
+                  placeholder="搜索标题、主题或文件路径"
+                  value={historySearch}
+                  onChange={(event) => setHistorySearch(event.target.value)}
+                />
+              )}
+              {showHistoryPanel && filteredHistory.length > 6 && !normalizedHistorySearch && (
                 <button className="btn btn-ghost btn-sm" onClick={() => setShowAllHistory((prev) => !prev)}>
                   {showAllHistory ? '收起列表' : '显示全部'}
                 </button>
               )}
+              <button className="btn btn-ghost btn-sm" onClick={handleToggleHistoryPanel}>
+                {showHistoryPanel ? '收起面板' : '展开面板'}
+              </button>
             </div>
           </div>
-          {history.length > 0 && (
-            <p className="text-muted" style={{ marginTop: 0, marginBottom: 'var(--sp-4)' }}>
-              共 {history.length} 条记录，当前显示 {visibleHistory.length} 条。
-            </p>
-          )}
-          {filteredHistory.length === 0 ? (
-            <p className="text-muted" style={{ margin: 0 }}>
-              {history.length === 0 ? '还没有历史文章记录，先生成一篇再回来查看。' : '没有匹配的历史记录。'}
-            </p>
-          ) : (
-            <div className="history-list">
-              {visibleHistory.map((entry) => {
-                const isMatched = matchedHistory?.mdPath === entry.mdPath
-                return (
-                  <div key={entry.id} className={`history-item${isMatched ? ' history-item--matched' : ''}`}>
-                    <div className="history-item__body">
-                      <p className="history-item__title">{entry.title}</p>
-                      <p className="history-item__meta">
-                        主题：{entry.topic || '未记录'} · 保存于 {formatHistoryDate(entry.createdAt)}
-                      </p>
-                      <p className="history-item__path">{entry.mdPath}</p>
-                    </div>
-                    <div className="history-item__actions">
-                      <button className="btn btn-ghost btn-sm" onClick={() => handleBrowseHistory(entry)}>
-                        浏览
-                      </button>
-                      <button className="btn btn-secondary btn-sm" onClick={() => handleUseHistory(entry)}>
-                        使用
-                      </button>
-                      <button className="btn btn-danger btn-sm" onClick={() => handleDeleteHistory(entry)}>
-                        删除记录
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+          {showHistoryPanel && (
+            <>
+              {history.length > 0 && (
+                <p className="text-muted" style={{ marginTop: 0, marginBottom: 'var(--sp-4)' }}>
+                  共 {history.length} 条记录，当前显示 {visibleHistory.length} 条。
+                </p>
+              )}
+              {filteredHistory.length === 0 ? (
+                <p className="text-muted" style={{ margin: 0 }}>
+                  {history.length === 0 ? '还没有历史文章记录，先生成一篇再回来查看。' : '没有匹配的历史记录。'}
+                </p>
+              ) : (
+                <div className="history-list">
+                  {visibleHistory.map((entry) => {
+                    const isMatched = matchedHistory?.mdPath === entry.mdPath
+                    return (
+                      <div key={entry.id} className={`history-item${isMatched ? ' history-item--matched' : ''}`}>
+                        <div className="history-item__body">
+                          <p className="history-item__title">{entry.title}</p>
+                          <p className="history-item__meta">
+                            主题：{entry.topic || '未记录'} · 保存于 {formatHistoryDate(entry.createdAt)}
+                          </p>
+                          <p className="history-item__path">{entry.mdPath}</p>
+                        </div>
+                        <div className="history-item__actions">
+                          <button className="btn btn-ghost btn-sm" onClick={() => handleBrowseHistory(entry)}>
+                            浏览
+                          </button>
+                          <button className="btn btn-secondary btn-sm" onClick={() => handleUseHistory(entry)}>
+                            使用
+                          </button>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDeleteHistory(entry)}>
+                            删除记录
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

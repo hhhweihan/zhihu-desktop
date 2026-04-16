@@ -4,6 +4,7 @@ import ScoreBadge from '../components/ScoreBadge'
 import IssueList from '../components/IssueList'
 import ProgressSteps from '../components/ProgressSteps'
 import LogPanel, { type LogEntry } from '../components/LogPanel'
+import { createLogEntryFromTaskEvent, getTaskErrorMessage, isTaskEventFor } from '../utils/task-events'
 
 interface Props {
   mdPath: string
@@ -17,41 +18,8 @@ const REVIEW_STEPS = [
   { label: '检查表述准确性' },
   { label: '检测 AI 腔调' },
   { label: '生成综合评分' },
+  { label: '审核完成' },
 ]
-
-function parseReviewLog(msg: string): { step?: number; line?: LogEntry } {
-  const line = msg.trim()
-  if (!line) return {}
-
-  const stepMatch = line.match(/^__STEP__review:(\d+):(.+)$/)
-  if (stepMatch) {
-    const step = Number(stepMatch[1])
-    const label = stepMatch[2].trim()
-    return { step, line: { message: `阶段更新：${label}`, timestamp: Date.now(), important: true, tone: 'step' } }
-  }
-
-  if (line.startsWith('✓ ')) {
-    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'success' } }
-  }
-  if (line.startsWith('✗ ') || line.startsWith('Error:')) {
-    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'error' } }
-  }
-  if (line.startsWith('⚠ ')) {
-    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'warning' } }
-  }
-  if (line.startsWith('检查中：') || line.startsWith('▶ ') || line.startsWith('总体评价')) {
-    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'info' } }
-  }
-
-  return {
-    line: {
-      message: line,
-      timestamp: Date.now(),
-      important: false,
-      tone: 'neutral',
-    },
-  }
-}
 
 const LOW_SCORE_TIPS = [
   '删除"随着科技发展""众所周知"等套话开头',
@@ -69,13 +37,14 @@ export default function ReviewScreen({ mdPath, title, onPublish, onBack }: Props
   const [activeStep, setActiveStep] = useState(0)
 
   useEffect(() => {
-    const off = window.electronAPI.onScriptLog((msg) => {
-      const parsed = parseReviewLog(msg)
-      if (parsed.step) {
-        setActiveStep(Math.max(0, Math.min(REVIEW_STEPS.length - 1, parsed.step - 1)))
+    const off = window.electronAPI.onTaskEvent((event) => {
+      if (!isTaskEventFor('review', event)) return
+      if (event.type === 'step') {
+        setActiveStep(Math.max(0, Math.min(REVIEW_STEPS.length - 1, event.step - 1)))
       }
-      if (!parsed.line) return
-      setLogs((prev) => [...prev.slice(-59), parsed.line!])
+      const line = createLogEntryFromTaskEvent(event)
+      if (!line) return
+      setLogs((prev) => [...prev.slice(-59), line])
     })
     return off
   }, [])
@@ -91,7 +60,7 @@ export default function ReviewScreen({ mdPath, title, onPublish, onBack }: Props
       const result = await window.electronAPI.reviewArticle(mdPath)
       setReport(result)
     } catch (e: any) {
-      setError(e.message)
+      setError(getTaskErrorMessage(e))
     } finally {
       setLoading(false)
     }

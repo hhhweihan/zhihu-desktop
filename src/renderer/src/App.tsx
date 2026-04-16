@@ -6,8 +6,9 @@ import ReviewScreen from './screens/ReviewScreen'
 import PublishScreen from './screens/PublishScreen'
 import SettingsScreen from './screens/SettingsScreen'
 import EdgeSetupModal from './components/EdgeSetupModal'
+import ToastViewport from './components/ToastViewport'
 
-type Screen = 'onboarding' | 'write' | 'review' | 'publish' | 'settings'
+type Screen = 'onboarding' | 'write' | 'review' | 'publish'
 
 const HISTORY_KEY = 'zhihu-article-history'
 
@@ -25,6 +26,7 @@ export default function App() {
   const [articleTitle, setArticleTitle] = useState('')
   const [showEdgeModal, setShowEdgeModal] = useState(false)
   const [pendingPublish, setPendingPublish] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
 
   useEffect(() => {
     window.electronAPI.loadApiKey().then((key) => {
@@ -59,14 +61,14 @@ export default function App() {
     }
   }
 
-  const showSettingsBtn = screen === 'write' || screen === 'review' || screen === 'publish'
+  const showSettingsBtn = !showSettings && (screen === 'write' || screen === 'review' || screen === 'publish')
 
   return (
     <div>
       {showSettingsBtn && (
         <button
           className="btn btn-ghost btn-sm"
-          onClick={() => setScreen('settings')}
+          onClick={() => setShowSettings(true)}
           style={{ position: 'fixed', top: 12, right: 16, zIndex: 100 }}
         >
           ⚙ 设置
@@ -91,11 +93,21 @@ export default function App() {
           onBack={() => setScreen('review')}
         />
       )}
-      {screen === 'settings' && <SettingsScreen onBack={() => setScreen('write')} />}
+
+      {showSettings && (
+        <div className="settings-overlay">
+          <div className="settings-overlay__backdrop" onClick={() => setShowSettings(false)} />
+          <div className="settings-overlay__panel">
+            <SettingsScreen onBack={() => setShowSettings(false)} />
+          </div>
+        </div>
+      )}
 
       {showEdgeModal && (
         <EdgeSetupModal onReady={handleEdgeReady} onClose={() => setShowEdgeModal(false)} />
       )}
+
+      <ToastViewport />
     </div>
   )
 }

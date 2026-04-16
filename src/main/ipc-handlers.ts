@@ -8,6 +8,25 @@ import fs from 'node:fs'
 
 let currentGenerateAbort: (() => void) | null = null
 
+function extractScriptResult<T>(stderr: string): T | null {
+  const lines = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].startsWith('__RESULT__')) continue
+    const payload = lines[i].slice('__RESULT__'.length)
+    try {
+      return JSON.parse(payload) as T
+    } catch {
+      return null
+    }
+  }
+
+  return null
+}
+
 export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // ── API Key ──────────────────────────────────────────────
   ipcMain.handle('api-key:save', (_, key: string) => saveApiKey(key))
@@ -46,9 +65,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       throw new Error(`生成失败：${result.stderr.slice(-500)}`)
     }
 
-    const resultMatch = result.stderr.match(/__RESULT__(.+)$/)
-    if (!resultMatch) throw new Error('无法解析生成结果')
-    return JSON.parse(resultMatch[1]) as { title: string; mdPath: string }
+    const parsedResult = extractScriptResult<{ title: string; mdPath: string }>(result.stderr)
+    if (!parsedResult) throw new Error('无法解析生成结果')
+    return parsedResult
   })
 
   // ── Review Article ────────────────────────────────────────

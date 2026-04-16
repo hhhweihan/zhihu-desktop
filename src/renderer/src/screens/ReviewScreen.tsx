@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import ScoreBadge from '../components/ScoreBadge'
 import IssueList from '../components/IssueList'
 import ProgressSteps from '../components/ProgressSteps'
+import LogPanel, { type LogEntry } from '../components/LogPanel'
 
 interface Props {
   mdPath: string
@@ -18,6 +19,40 @@ const REVIEW_STEPS = [
   { label: '生成综合评分' },
 ]
 
+function parseReviewLog(msg: string): { step?: number; line?: LogEntry } {
+  const line = msg.trim()
+  if (!line) return {}
+
+  const stepMatch = line.match(/^__STEP__review:(\d+):(.+)$/)
+  if (stepMatch) {
+    const step = Number(stepMatch[1])
+    const label = stepMatch[2].trim()
+    return { step, line: { message: `阶段更新：${label}`, timestamp: Date.now(), important: true, tone: 'step' } }
+  }
+
+  if (line.startsWith('✓ ')) {
+    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'success' } }
+  }
+  if (line.startsWith('✗ ') || line.startsWith('Error:')) {
+    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'error' } }
+  }
+  if (line.startsWith('⚠ ')) {
+    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'warning' } }
+  }
+  if (line.startsWith('检查中：') || line.startsWith('▶ ') || line.startsWith('总体评价')) {
+    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'info' } }
+  }
+
+  return {
+    line: {
+      message: line,
+      timestamp: Date.now(),
+      important: false,
+      tone: 'neutral',
+    },
+  }
+}
+
 const LOW_SCORE_TIPS = [
   '删除"随着科技发展""众所周知"等套话开头',
   '加入第一手案例或亲身经历，增强真实感',
@@ -30,11 +65,17 @@ export default function ReviewScreen({ mdPath, title, onPublish, onBack }: Props
   const [loading, setLoading] = useState(true)
   const [report, setReport] = useState<ReviewReport | null>(null)
   const [error, setError] = useState('')
-  const [logs, setLogs] = useState<string[]>([])
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [activeStep, setActiveStep] = useState(0)
 
   useEffect(() => {
     const off = window.electronAPI.onScriptLog((msg) => {
-      setLogs((prev) => [...prev.slice(-30), msg.trim()])
+      const parsed = parseReviewLog(msg)
+      if (parsed.step) {
+        setActiveStep(Math.max(0, Math.min(REVIEW_STEPS.length - 1, parsed.step - 1)))
+      }
+      if (!parsed.line) return
+      setLogs((prev) => [...prev.slice(-59), parsed.line!])
     })
     return off
   }, [])
@@ -45,6 +86,7 @@ export default function ReviewScreen({ mdPath, title, onPublish, onBack }: Props
     setLoading(true)
     setError('')
     setLogs([])
+    setActiveStep(0)
     try {
       const result = await window.electronAPI.reviewArticle(mdPath)
       setReport(result)
@@ -56,13 +98,12 @@ export default function ReviewScreen({ mdPath, title, onPublish, onBack }: Props
   }
 
   const reviewSteps = REVIEW_STEPS.map((s, i) => {
-    const progress = Math.min(logs.length / 3, REVIEW_STEPS.length - 1)
     return {
       label: s.label,
       status: (
         !loading && report ? 'done' :
-        i < Math.floor(progress) ? 'done' :
-        i === Math.floor(progress) ? 'active' :
+        i < activeStep ? 'done' :
+        i === activeStep ? 'active' :
         'pending'
       ) as 'pending' | 'active' | 'done' | 'error',
     }
@@ -82,6 +123,12 @@ export default function ReviewScreen({ mdPath, title, onPublish, onBack }: Props
         <div className="card">
           <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--sp-4)' }}>审核中，请稍候...</p>
           <ProgressSteps steps={reviewSteps} />
+        </div>
+      )}
+
+      {(loading || error || logs.length > 0) && (
+        <div style={{ marginTop: 'var(--sp-4)' }}>
+          <LogPanel logs={logs} title="审核日志" emptyText="等待审核脚本输出日志..." />
         </div>
       )}
 

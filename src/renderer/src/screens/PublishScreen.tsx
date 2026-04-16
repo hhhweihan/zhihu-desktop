@@ -1,6 +1,7 @@
 // src/renderer/src/screens/PublishScreen.tsx
 import { useState, useEffect } from 'react'
 import ProgressSteps from '../components/ProgressSteps'
+import LogPanel, { type LogEntry } from '../components/LogPanel'
 
 interface Props {
   mdPath: string
@@ -16,15 +17,55 @@ const PUBLISH_STEPS = [
   { label: '完成' },
 ]
 
+function parsePublishLog(msg: string): { step?: number; line?: LogEntry } {
+  const line = msg.trim()
+  if (!line) return {}
+
+  const stepMatch = line.match(/^__STEP__publish:(\d+):(.+)$/)
+  if (stepMatch) {
+    const step = Number(stepMatch[1])
+    const label = stepMatch[2].trim()
+    return { step, line: { message: `阶段更新：${label}`, timestamp: Date.now(), important: true, tone: 'step' } }
+  }
+
+  if (line.startsWith('✓ ')) {
+    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'success' } }
+  }
+  if (line.startsWith('✗ ') || line.startsWith('Error:')) {
+    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'error' } }
+  }
+  if (line.startsWith('⚠ ')) {
+    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'warning' } }
+  }
+  if (line.startsWith('▶ ')) {
+    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'info' } }
+  }
+
+  return {
+    line: {
+      message: line,
+      timestamp: Date.now(),
+      important: false,
+      tone: 'neutral',
+    },
+  }
+}
+
 export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) {
   const [status, setStatus] = useState<'idle' | 'publishing' | 'done' | 'error'>('idle')
   const [error, setError] = useState('')
-  const [logs, setLogs] = useState<string[]>([])
+  const [logs, setLogs] = useState<LogEntry[]>([])
   const [autoSubmitted, setAutoSubmitted] = useState(false)
+  const [activeStep, setActiveStep] = useState(0)
 
   useEffect(() => {
     const off = window.electronAPI.onScriptLog((msg) => {
-      setLogs((prev) => [...prev.slice(-50), msg.trim()])
+      const parsed = parsePublishLog(msg)
+      if (parsed.step) {
+        setActiveStep(Math.max(0, Math.min(PUBLISH_STEPS.length - 1, parsed.step - 1)))
+      }
+      if (!parsed.line) return
+      setLogs((prev) => [...prev.slice(-79), parsed.line!])
     })
     return off
   }, [])
@@ -34,6 +75,7 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
     setStatus('publishing')
     setError('')
     setLogs([])
+    setActiveStep(0)
     try {
       await window.electronAPI.publishArticle(mdPath, autoSubmit)
       setStatus('done')
@@ -44,13 +86,12 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
   }
 
   const publishSteps = PUBLISH_STEPS.map((s, i) => {
-    const progress = Math.min(logs.length / 4, PUBLISH_STEPS.length - 1)
     return {
       label: s.label,
       status: (
         status === 'done' ? 'done' :
-        i < Math.floor(progress) ? 'done' :
-        i === Math.floor(progress) ? 'active' :
+        i < activeStep ? 'done' :
+        i === activeStep ? 'active' :
         'pending'
       ) as 'pending' | 'active' | 'done' | 'error',
     }
@@ -88,6 +129,12 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
             发布中，请勿关闭 Edge...
           </p>
           <ProgressSteps steps={publishSteps} />
+        </div>
+      )}
+
+      {(status === 'publishing' || status === 'done' || status === 'error') && (
+        <div style={{ marginTop: 'var(--sp-4)' }}>
+          <LogPanel logs={logs} title="发布日志" emptyText="等待发布脚本输出日志..." maxHeight={260} />
         </div>
       )}
 

@@ -2,42 +2,76 @@
 import { useState, useEffect, useRef } from 'react'
 import ProgressSteps from '../components/ProgressSteps'
 import MarkdownPreview from '../components/MarkdownPreview'
+import LogPanel, { type LogEntry } from '../components/LogPanel'
 
 interface Props {
   onArticleReady: (mdPath: string, title: string) => void
 }
 
-const STEP_KEYWORDS = [
-  { label: '分析话题', keywords: ['分析', 'topic', 'analyz'] },
-  { label: '搜集资料', keywords: ['搜索', 'search', '资料', 'research'] },
-  { label: '生成大纲', keywords: ['大纲', 'outline', 'struct'] },
-  { label: '撰写内容', keywords: ['生成', 'generat', 'writ', '内容'] },
-  { label: '保存文章', keywords: ['保存', 'sav', 'output', 'done'] },
+const WRITE_STEPS = [
+  { label: '整理写作要求' },
+  { label: '构建提示词' },
+  { label: '流式生成正文' },
+  { label: '保存文章文件' },
+  { label: '生成完成' },
 ]
 
-function inferActiveStep(logs: string[]): number {
-  const combined = logs.join(' ').toLowerCase()
-  let last = 0
-  STEP_KEYWORDS.forEach((s, i) => {
-    if (s.keywords.some((k) => combined.includes(k))) last = i
-  })
-  return last
+function normalizeLogLine(message: string): string | null {
+  const line = message.trim()
+  if (!line || line.startsWith('__RESULT__')) return null
+  return line
+}
+
+function parseWriteLog(msg: string): { step?: number; line?: LogEntry } {
+  const line = normalizeLogLine(msg)
+  if (!line) return {}
+
+  const stepMatch = line.match(/^__STEP__write:(\d+):(.+)$/)
+  if (stepMatch) {
+    const step = Number(stepMatch[1])
+    const label = stepMatch[2].trim()
+    return {
+      step,
+      line: { message: `阶段更新：${label}`, timestamp: Date.now(), important: true, tone: 'step' },
+    }
+  }
+
+  if (line.startsWith('✓ ')) {
+    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'success' } }
+  }
+  if (line.startsWith('✗ ') || line.startsWith('Error:')) {
+    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'error' } }
+  }
+  if (line.startsWith('⚠ ')) {
+    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'warning' } }
+  }
+  if (line.startsWith('▶ ') || line.startsWith('使用模型：') || line.startsWith('写作中：') || line.startsWith('阶段 ')) {
+    return { line: { message: line, timestamp: Date.now(), important: true, tone: 'info' } }
+  }
+
+  return { line: { message: line, timestamp: Date.now(), important: false, tone: 'neutral' } }
 }
 
 export default function WriteScreen({ onArticleReady }: Props) {
   const [topic, setTopic] = useState('')
   const [generating, setGenerating] = useState(false)
-  const [logs, setLogs] = useState<string[]>([])
+  const [logs, setLogs] = useState<LogEntry[]>([])
   const [error, setError] = useState('')
   const [previewContent, setPreviewContent] = useState('')
   const [previewTitle, setPreviewTitle] = useState('')
   const [previewMdPath, setPreviewMdPath] = useState('')
   const [showPreview, setShowPreview] = useState(false)
+  const [activeStep, setActiveStep] = useState(0)
   const cancelledRef = useRef(false)
 
   useEffect(() => {
     const off = window.electronAPI.onScriptLog((msg) => {
-      setLogs((prev) => [...prev.slice(-50), msg.trim()])
+      const parsed = parseWriteLog(msg)
+      if (parsed.step) {
+        setActiveStep(Math.max(0, Math.min(WRITE_STEPS.length - 1, parsed.step - 1)))
+      }
+      if (!parsed.line) return
+      setLogs((prev) => [...prev.slice(-79), parsed.line!])
     })
     return off
   }, [])
@@ -48,6 +82,7 @@ export default function WriteScreen({ onArticleReady }: Props) {
     setGenerating(true)
     setError('')
     setLogs([])
+    setActiveStep(0)
     setShowPreview(false)
     try {
       const result = await window.electronAPI.generateArticle(topic.trim())
@@ -79,11 +114,12 @@ export default function WriteScreen({ onArticleReady }: Props) {
     onArticleReady(previewMdPath, previewTitle)
   }
 
-  const activeStep = inferActiveStep(logs)
-  const steps = STEP_KEYWORDS.map((s, i) => ({
+  const activeStepLabel = WRITE_STEPS[activeStep]?.label ?? '准备中'
+  const steps = WRITE_STEPS.map((s, i) => ({
     label: s.label,
     status: (
       !generating && logs.length === 0 ? 'pending' :
+      !generating && showPreview ? 'done' :
       i < activeStep ? 'done' :
       i === activeStep ? 'active' :
       'pending'
@@ -146,7 +182,17 @@ export default function WriteScreen({ onArticleReady }: Props) {
 
       {generating && (
         <div className="card" style={{ marginTop: 'var(--sp-6)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--sp-4)', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
+            <div>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 4 }}>当前阶段</p>
+              <p style={{ color: 'var(--text-primary)', fontSize: 16, fontWeight: 700 }}>{activeStepLabel}</p>
+            </div>
+            <p style={{ color: 'var(--text-muted)', fontSize: 12, whiteSpace: 'nowrap' }}>最近 {logs.length} 条日志</p>
+          </div>
           <ProgressSteps steps={steps} />
+          <div style={{ marginTop: 'var(--sp-5)' }}>
+            <LogPanel logs={logs} emptyText="等待脚本输出日志..." />
+          </div>
         </div>
       )}
     </div>

@@ -29,11 +29,16 @@ function log(msg: string) {
   console.error(msg);
 }
 
+function emitStep(step: number, label: string) {
+  console.error(`__STEP__publish:${step}:${label}`);
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   let markdownFile = args.markdown || ".";
 
   // Step 1: Start Edge
+  emitStep(1, "打开知乎编辑器");
   log("▶ 步骤 1: 启动 Edge 浏览器（CDP 调试模式）");
   try {
     const startup = execSync(
@@ -50,6 +55,7 @@ async function main() {
   }
 
   // Step 2: Process markdown file
+  emitStep(2, "填充文章内容");
   log("▶ 步骤 2: 转换 Markdown 为 HTML");
   if (fs.statSync(markdownFile).isDirectory()) {
     const files = fs.readdirSync(markdownFile).filter((f) => f.endsWith(".md"));
@@ -82,6 +88,7 @@ async function main() {
   log(`✓ 话题: ${topics.join(", ")}`);
 
   // Step 3: Fill title and content
+  emitStep(3, "等待页面就绪");
   log("▶ 步骤 3: 填充标题和正文到知乎编辑器");
   const publishArgs = [`--html`, bodyHtmlPath, `--title`, title];
   if (args.submit) publishArgs.push("--submit");
@@ -107,6 +114,7 @@ async function main() {
   }
 
   // Step 4: Report success
+  emitStep(4, "完成");
   log("▶ 步骤 4: 发布完成");
   log("");
   log("========== 发布报告 ==========");

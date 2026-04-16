@@ -25,7 +25,12 @@ interface ReviewReport {
   authenticity: string;
 }
 
+function emitStep(step: number, label: string): void {
+  console.error(`__STEP__review:${step}:${label}`);
+}
+
 async function reviewArticle(filePath: string): Promise<ReviewReport> {
+  emitStep(1, "读取文章");
   const content = fs.readFileSync(filePath, "utf-8");
 
   // Extract title and body
@@ -39,6 +44,7 @@ async function reviewArticle(filePath: string): Promise<ReviewReport> {
   console.error("");
 
   // 问题 1: 检测夸大表述
+  emitStep(2, "检查表述准确性");
   console.error("检查中：夸大表述检测...");
   const exaggerationCheck = await client.messages.create({
     model: "claude-opus-4-6",
@@ -83,6 +89,7 @@ ${body.substring(0, 2000)}
   }
 
   // 问题 2: AI味检测
+  emitStep(3, "检测 AI 腔调");
   console.error("检查中：AI生成痕迹检测...");
   const aiToneCheck = await client.messages.create({
     model: "claude-opus-4-6",
@@ -175,6 +182,7 @@ AI生成的常见特征：
   }
 
   // 问题 4: 综合真实性和人文度评估
+  emitStep(4, "生成综合评分");
   console.error("检查中：综合评估...");
   const overallReview = await client.messages.create({
     model: "claude-opus-4-6",
@@ -274,6 +282,8 @@ ${body.substring(0, 1500)}
   const overallScore = Math.round(
     (authenticityScore * 0.4 + humanTouchScore * 0.4 + readabilityScore * 0.2)
   );
+
+  emitStep(5, "审核完成");
 
   return {
     title,

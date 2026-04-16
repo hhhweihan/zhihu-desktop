@@ -79,8 +79,51 @@ async function fillEditor(cdp: CdpConnection, sessionId: string, title: string, 
     const titleValue = ${JSON.stringify(title)};
     const bodyValue = ${JSON.stringify(bodyHtml)};
 
+    function pickBodyElement() {
+      return document.querySelector('.ProseMirror')
+        || document.querySelector('.public-DraftEditor-content [contenteditable="true"]')
+        || document.querySelector('[contenteditable="true"]')
+        || document.querySelector('[role="textbox"]');
+    }
+
+    function setInputValue(element, nextValue) {
+      const prototype = Object.getPrototypeOf(element);
+      const descriptor = prototype ? Object.getOwnPropertyDescriptor(prototype, 'value') : null;
+      if (descriptor && typeof descriptor.set === 'function') {
+        descriptor.set.call(element, nextValue);
+      } else {
+        element.value = nextValue;
+      }
+    }
+
+    function buildPlainTextFromHtml(html) {
+      const container = document.createElement('div');
+      container.innerHTML = html;
+      return (container.innerText || container.textContent || '').trim();
+    }
+
+    function dispatchPaste(element, html) {
+      const plainText = buildPlainTextFromHtml(html);
+      const data = new DataTransfer();
+      data.setData('text/html', html);
+      data.setData('text/plain', plainText);
+
+      const pasteEvent = new ClipboardEvent('paste', {
+        bubbles: true,
+        cancelable: true,
+      });
+
+      try {
+        Object.defineProperty(pasteEvent, 'clipboardData', {
+          value: data,
+        });
+      } catch {}
+
+      return element.dispatchEvent(pasteEvent);
+    }
+
     const titleEl = document.querySelector('textarea[placeholder*="标题"], input[placeholder*="标题"], textarea, input[type="text"]');
-    const bodyEl = document.querySelector('[contenteditable="true"], .ProseMirror, .public-DraftEditor-content, [role="textbox"]');
+    const bodyEl = pickBodyElement();
 
     if (!titleEl || !bodyEl) {
       return { ok: false, reason: '未找到标题或正文编辑器' };
@@ -88,7 +131,7 @@ async function fillEditor(cdp: CdpConnection, sessionId: string, title: string, 
 
     titleEl.focus();
     if ('value' in titleEl) {
-      titleEl.value = titleValue;
+      setInputValue(titleEl, titleValue);
     }
     titleEl.dispatchEvent(new Event('input', { bubbles: true }));
     titleEl.dispatchEvent(new Event('change', { bubbles: true }));
@@ -105,7 +148,15 @@ async function fillEditor(cdp: CdpConnection, sessionId: string, title: string, 
     }
 
     document.execCommand('selectAll', false);
-    document.execCommand('insertHTML', false, bodyValue);
+
+    const beforeHtml = (bodyEl.innerHTML || '').trim();
+    const pasteDispatched = dispatchPaste(bodyEl, bodyValue);
+    const afterPasteHtml = (bodyEl.innerHTML || '').trim();
+
+    if (!pasteDispatched || afterPasteHtml === beforeHtml || afterPasteHtml.length === 0) {
+      document.execCommand('insertHTML', false, bodyValue);
+    }
+
     if ((bodyEl.innerHTML || '').trim().length === 0) {
       bodyEl.innerHTML = bodyValue;
     }

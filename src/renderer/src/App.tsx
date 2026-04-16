@@ -24,23 +24,44 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('onboarding')
   const [articleMdPath, setArticleMdPath] = useState('')
   const [articleTitle, setArticleTitle] = useState('')
+  const [history, setHistory] = useState<ArticleHistory[]>([])
   const [showEdgeModal, setShowEdgeModal] = useState(false)
   const [pendingPublish, setPendingPublish] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
 
   useEffect(() => {
+    setHistory(loadHistory())
     window.electronAPI.loadApiKey().then((key) => {
       if (key) setScreen('write')
     })
   }, [])
 
-  function handleArticleReady(mdPath: string, title: string) {
+  function handleArticleReady(mdPath: string, title: string, topic = '') {
     setArticleMdPath(mdPath)
     setArticleTitle(title)
-    const hist = loadHistory()
-    const entry: ArticleHistory = { id: Date.now().toString(), title, mdPath, createdAt: Date.now() }
-    saveHistory([entry, ...hist])
+    const entry: ArticleHistory = { id: Date.now().toString(), title, topic, mdPath, createdAt: Date.now() }
+    setHistory((prev) => {
+      const nextHistory = [entry, ...prev.filter((item) => item.mdPath !== mdPath)]
+      saveHistory(nextHistory)
+      return nextHistory.slice(0, 50)
+    })
     setScreen('review')
+  }
+
+  function handleDeleteHistory(id: string) {
+    setHistory((prev) => {
+      const nextHistory = prev.filter((item) => item.id !== id)
+      saveHistory(nextHistory)
+      return nextHistory
+    })
+  }
+
+  function handleCredentialsCleared() {
+    setArticleMdPath('')
+    setArticleTitle('')
+    setPendingPublish(false)
+    setShowSettings(false)
+    setScreen('onboarding')
   }
 
   async function handleGoPublish() {
@@ -76,7 +97,13 @@ export default function App() {
       )}
 
       {screen === 'onboarding' && <Onboarding onComplete={() => setScreen('write')} />}
-      {screen === 'write' && <WriteScreen onArticleReady={handleArticleReady} />}
+      {screen === 'write' && (
+        <WriteScreen
+          history={history}
+          onArticleReady={handleArticleReady}
+          onDeleteHistory={handleDeleteHistory}
+        />
+      )}
       {screen === 'review' && (
         <ReviewScreen
           mdPath={articleMdPath}
@@ -98,7 +125,10 @@ export default function App() {
         <div className="settings-overlay">
           <div className="settings-overlay__backdrop" onClick={() => setShowSettings(false)} />
           <div className="settings-overlay__panel">
-            <SettingsScreen onBack={() => setShowSettings(false)} />
+            <SettingsScreen
+              onBack={() => setShowSettings(false)}
+              onCredentialsCleared={handleCredentialsCleared}
+            />
           </div>
         </div>
       )}

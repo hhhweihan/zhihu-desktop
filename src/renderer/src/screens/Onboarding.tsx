@@ -73,11 +73,13 @@ export default function Onboarding({ onComplete }: Props) {
     setLoading(true)
     setError('')
     try {
+      const defaultOutputDir = await window.electronAPI.getDefaultOutputDir()
       await window.electronAPI.saveApiKey(apiKey.trim())
       await window.electronAPI.saveConfig({
         provider: providerId,
         model: model.trim() || provider.defaultModel,
         baseUrl: baseUrl.trim(),
+        outputDir: defaultOutputDir,
       })
       onComplete()
     } catch (e: any) {

@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // AI Config
   saveConfig: (config: unknown) => ipcRenderer.invoke('config:save', config),
   loadConfig: () => ipcRenderer.invoke('config:load'),
+  clearConfig: () => ipcRenderer.invoke('config:clear'),
+  getDefaultOutputDir: () => ipcRenderer.invoke('path:default-output'),
+  chooseDirectory: (defaultPath?: string) => ipcRenderer.invoke('directory:choose', defaultPath),
 
   // Edge
   checkEdge: () => ipcRenderer.invoke('edge:check'),
@@ -21,6 +24,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   publishArticle: (mdPath: string, autoSubmit: boolean) =>
     ipcRenderer.invoke('article:publish', mdPath, autoSubmit),
   readFile: (filePath: string) => ipcRenderer.invoke('file:read', filePath),
+  writeFile: (filePath: string, content: string) => ipcRenderer.invoke('file:write', filePath, content),
+  deleteFile: (filePath: string) => ipcRenderer.invoke('file:delete', filePath),
 
   // 流式事件
   onGenerateChunk: (cb: (chunk: string) => void) => {

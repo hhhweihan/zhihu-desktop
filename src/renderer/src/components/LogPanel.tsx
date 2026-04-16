@@ -13,6 +13,7 @@ interface Props {
   title?: string
   emptyText?: string
   maxHeight?: number
+  defaultShowImportantOnly?: boolean
 }
 
 function formatTimestamp(timestamp: number): string {
@@ -58,13 +59,20 @@ async function notifyCopyResult(title: string, body: string): Promise<boolean> {
   return false
 }
 
-export default function LogPanel({ logs, title = '实时日志', emptyText = '暂无日志输出', maxHeight = 220 }: Props) {
+export default function LogPanel({
+  logs,
+  title = '实时日志',
+  emptyText = '暂无日志输出',
+  maxHeight = 220,
+  defaultShowImportantOnly = false,
+}: Props) {
   const [copyState, setCopyState] = useState<'idle' | 'failed'>('idle')
-  const [showImportantOnly, setShowImportantOnly] = useState(false)
+  const [showImportantOnly, setShowImportantOnly] = useState(defaultShowImportantOnly)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const resetTimerRef = useRef<number | null>(null)
   const importantLogs = logs.filter((log) => log.important)
-  const displayedLogs = showImportantOnly ? importantLogs : logs
+  const shouldFallbackToAllLogs = logs.length > 0 && importantLogs.length === 0
+  const displayedLogs = showImportantOnly && !shouldFallbackToAllLogs ? importantLogs : logs
   const canFilter = importantLogs.length > 0 && importantLogs.length < logs.length
 
   useEffect(() => {
@@ -73,10 +81,10 @@ export default function LogPanel({ logs, title = '实时日志', emptyText = '�
   }, [displayedLogs])
 
   useEffect(() => {
-    if (!canFilter && showImportantOnly) {
+    if (shouldFallbackToAllLogs && showImportantOnly) {
       setShowImportantOnly(false)
     }
-  }, [canFilter, showImportantOnly])
+  }, [shouldFallbackToAllLogs, showImportantOnly])
 
   useEffect(() => {
     return () => {

@@ -33,24 +33,39 @@ export interface AIConfig {
   provider: 'anthropic' | 'letai' | 'custom'
   model: string
   baseUrl: string
+  outputDir: string
 }
 
-const DEFAULT_CONFIG: AIConfig = {
-  provider: 'anthropic',
-  model: 'claude-sonnet-4-6',
-  baseUrl: ''
+function createDefaultConfig(): AIConfig {
+  return {
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-6',
+    baseUrl: '',
+    outputDir: getDefaultOutputDir(),
+  }
+}
+
+export function getDefaultOutputDir(): string {
+  const baseDir = app.isPackaged ? path.dirname(app.getPath('exe')) : app.getAppPath()
+  return path.join(baseDir, 'articles')
 }
 
 export function saveConfig(config: AIConfig): void {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8')
+  const nextConfig: AIConfig = {
+    ...createDefaultConfig(),
+    ...config,
+    outputDir: config.outputDir?.trim() || getDefaultOutputDir(),
+  }
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(nextConfig, null, 2), 'utf-8')
 }
 
 export function loadConfig(): AIConfig {
-  if (!fs.existsSync(CONFIG_PATH)) return DEFAULT_CONFIG
+  const defaultConfig = createDefaultConfig()
+  if (!fs.existsSync(CONFIG_PATH)) return defaultConfig
   try {
-    return { ...DEFAULT_CONFIG, ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')) }
+    return { ...defaultConfig, ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')) }
   } catch {
-    return DEFAULT_CONFIG
+    return defaultConfig
   }
 }
 

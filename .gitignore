@@ -9,5 +9,7 @@ resources/bun.exe
 scripts/node_modules
 docs
 .claude
+.vscode
+CLAUDE.md
 OPENSOURCE_PLAN.md
 OPENSOURCE_CHECKLIST.md

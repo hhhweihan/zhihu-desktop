@@ -84,9 +84,25 @@ async function waitForEdgeDebugging(timeoutMs: number): Promise<boolean> {
   return false
 }
 
+async function isEdgeProcessRunning(): Promise<boolean> {
+  try {
+    const { stdout } = await execAsync(
+      process.platform === 'darwin' ? 'pgrep -x "Microsoft Edge"' : 'tasklist /FI "IMAGENAME eq msedge.exe" /NH',
+    )
+    return process.platform === 'darwin' ? stdout.trim().length > 0 : /msedge/i.test(stdout)
+  } catch {
+    return false
+  }
+}
+
 export async function launchEdge(): Promise<{ success: boolean; error?: string }> {
   if (await isEdgeDebugging()) {
     return { success: true }
+  }
+
+  if (await isEdgeProcessRunning()) {
+    await killEdgeProcesses()
+    await waitForPortClosed(5000)
   }
 
   const edgePath = await findEdgePath()

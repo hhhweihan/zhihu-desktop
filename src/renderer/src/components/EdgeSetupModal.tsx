@@ -45,8 +45,14 @@ export default function EdgeSetupModal({ onReady, onClose }: Props) {
         setStatus('ok')
         await refreshZhihuState()
       } else {
-        setStatus('fail')
-        setError(result.error ?? '启动失败')
+        const retry = await window.electronAPI.killEdgeAndRelaunch()
+        if (retry.success) {
+          setStatus('ok')
+          await refreshZhihuState()
+        } else {
+          setStatus('fail')
+          setError(retry.error ?? '启动失败，请手动关闭所有 Edge 窗口后重试')
+        }
       }
     }
   }

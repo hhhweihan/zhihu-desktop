@@ -6,7 +6,7 @@ import { reviewArticle } from './services/article-review'
 import { publishArticle, getZhihuLoginState } from './services/article-publish'
 import { generateArticleCover, type CoverTemplate } from './services/article-cover'
 import { checkForAppUpdates, downloadAppUpdate, getAppUpdateState, quitAndInstallAppUpdate } from './services/app-updater'
-import { createTaskReporter, isTaskCancelledError, type TaskReporter } from './services/task-runtime'
+import { createTaskReporter, isTaskCancelledError, toUserFriendlyErrorMessage, type TaskReporter } from './services/task-runtime'
 import path from 'node:path'
 import fs from 'node:fs'
 import type { TaskEvent, TaskKind } from '../shared/task-events'
@@ -82,12 +82,16 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
     const config = loadConfig()
 
-    return suggestArticlePlans({
-      topic,
-      apiKey,
-      model: config.model,
-      baseUrl: config.baseUrl,
-    })
+    try {
+      return await suggestArticlePlans({
+        topic,
+        apiKey,
+        model: config.model,
+        baseUrl: config.baseUrl,
+      })
+    } catch (error) {
+      throw new Error(toUserFriendlyErrorMessage(error))
+    }
   })
 
   ipcMain.handle('article:generate', async (_, topic: string, plan?: ArticlePlan) => {

@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { nativeImage } from 'electron'
+import { Resvg } from '@resvg/resvg-js'
 import { createTaskError, type TaskReporter } from './task-runtime'
 
 export type CoverTemplate = 'comparison' | 'minimalist' | 'feature'
@@ -123,17 +123,27 @@ function buildPreviewDataUrl(svgContent: string): string {
 }
 
 function svgToPngBuffer(svgContent: string): Buffer {
-  const svgBase64 = Buffer.from(svgContent, 'utf-8').toString('base64')
-  const image = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${svgBase64}`)
-  if (image.isEmpty()) {
+  try {
+    const renderer = new Resvg(svgContent, {
+      fitTo: {
+        mode: 'width',
+        value: 1920,
+      },
+      font: {
+        loadSystemFonts: true,
+        defaultFontFamily: 'Microsoft YaHei',
+      },
+    })
+
+    return renderer.render().asPng()
+  } catch {
     throw createTaskError({
       code: 'COVER_PNG_RENDER_FAILED',
       task: 'cover',
-      userMessage: '封面 PNG 渲染失败，请调整标题或模板后重试',
+      userMessage: '封面 PNG 渲染失败，请检查标题文本或本机字体环境后重试',
       retryable: true,
     })
   }
-  return image.toPNG()
 }
 
 export async function generateArticleCover(options: GenerateCoverOptions): Promise<CoverGenerationResult> {

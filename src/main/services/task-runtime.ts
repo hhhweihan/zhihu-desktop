@@ -61,6 +61,45 @@ export function isTaskCancelledError(error: unknown): boolean {
   return message.includes('取消')
 }
 
+function extractErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+export function toUserFriendlyErrorMessage(error: unknown): string {
+  const message = extractErrorMessage(error)
+  const normalized = message.toLowerCase()
+
+  if (normalized.includes('insufficient balance') || normalized.includes('余额不足')) {
+    return 'AI 服务账户余额不足或额度已用尽，请检查当前 API Key 和 Base URL 对应账户的可用额度。'
+  }
+
+  if (normalized.includes('invalid_api_key') || normalized.includes('authentication') || normalized.includes('unauthorized') || normalized.includes('api key')) {
+    return 'API Key 无效或认证失败，请检查当前 API Key 是否填写正确。'
+  }
+
+  if (normalized.includes('rate limit') || normalized.includes('too many requests')) {
+    return '请求过于频繁，已触发服务端限流，请稍后重试。'
+  }
+
+  if (normalized.includes('model') && (normalized.includes('not found') || normalized.includes('does not exist') || normalized.includes('unsupported'))) {
+    return '当前配置的模型不可用，请检查模型名称是否正确，或确认该服务已开通该模型。'
+  }
+
+  if (normalized.includes('timeout') || normalized.includes('timed out')) {
+    return '请求 AI 服务超时，请稍后重试，并检查网络或接口地址是否可用。'
+  }
+
+  if (normalized.includes('network') || normalized.includes('fetch failed') || normalized.includes('econnrefused') || normalized.includes('enotfound')) {
+    return '无法连接到 AI 服务，请检查网络连接以及 Base URL 是否正确。'
+  }
+
+  if (normalized.includes('500') && normalized.includes('api_error')) {
+    return 'AI 服务返回了内部错误，请稍后重试；如果持续出现，请检查当前接口服务状态。'
+  }
+
+  return message || '任务执行失败'
+}
+
 export function normalizeTaskError(task: TaskKind, error: unknown): AppTaskError {
   if (error instanceof TaskOperationError) {
     return {
@@ -74,7 +113,7 @@ export function normalizeTaskError(task: TaskKind, error: unknown): AppTaskError
     }
   }
 
-  const message = error instanceof Error ? error.message : String(error)
+  const message = toUserFriendlyErrorMessage(error)
   const cancelled = message.includes('取消')
 
   return {

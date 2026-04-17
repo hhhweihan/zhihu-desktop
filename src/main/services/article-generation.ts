@@ -106,7 +106,8 @@ function buildSystemPrompt(): string {
 - 文章长度 1500-3000 字
 - 使用 Markdown 格式
 - 文章开头是 # 标题（一级标题）
-- 适当加入个人踩坑经历`
+- 适当加入个人踩坑经历
+- 不要出现具体年份（如2024年、2025年），用"目前、近年来、截至撰文时"等长效表述`
 }
 
 function buildSuggestionPrompt(topic: string): string {

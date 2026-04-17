@@ -30,6 +30,8 @@ export default function App() {
   const [showEdgeModal, setShowEdgeModal] = useState(false)
   const [pendingPublish, setPendingPublish] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [zhihuLoginState, setZhihuLoginState] = useState<ZhihuLoginState | null>(null)
+  const [checkingZhihuState, setCheckingZhihuState] = useState(false)
 
   useEffect(() => {
     let disposed = false
@@ -56,6 +58,11 @@ export default function App() {
 
     window.electronAPI.loadApiKey().then((key) => {
       if (key) setScreen('write')
+    })
+
+    // Check Zhihu login state on startup
+    window.electronAPI.getZhihuLoginState().then(setZhihuLoginState).catch(() => {
+      setZhihuLoginState({ edgeReady: false, loggedIn: false })
     })
 
     return () => {
@@ -106,6 +113,21 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [screen])
+
+  async function refreshZhihuLogin() {
+    setCheckingZhihuState(true)
+    try {
+      const state = await window.electronAPI.getZhihuLoginState()
+      setZhihuLoginState(state)
+      return state
+    } catch {
+      const fallback: ZhihuLoginState = { edgeReady: false, loggedIn: false }
+      setZhihuLoginState(fallback)
+      return fallback
+    } finally {
+      setCheckingZhihuState(false)
+    }
+  }
 
   function handleArticleReady(mdPath: string, title: string, topic = '') {
     setArticleMdPath(mdPath)
@@ -160,13 +182,29 @@ export default function App() {
   return (
     <div>
       {showSettingsBtn && (
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={() => setShowSettings(true)}
-          style={{ position: 'fixed', top: 12, right: 16, zIndex: 100 }}
-        >
-          ⚙ 设置
-        </button>
+        <div style={{ position: 'fixed', top: 12, right: 16, zIndex: 100, display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
+          {zhihuLoginState && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={refreshZhihuLogin}
+              disabled={checkingZhihuState}
+              style={{ fontSize: 12, opacity: 0.85 }}
+            >
+              <span className={`status-dot ${zhihuLoginState.loggedIn ? 'status-dot--success' : 'status-dot--warning'}`} />
+              {checkingZhihuState
+                ? '检测中...'
+                : zhihuLoginState.loggedIn
+                  ? `知乎：${zhihuLoginState.displayName || '已登录'}`
+                  : '知乎：未连接'}
+            </button>
+          )}
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setShowSettings(true)}
+          >
+            ⚙ 设置
+          </button>
+        </div>
       )}
 
       {screen === 'onboarding' && <Onboarding onComplete={() => setScreen('write')} />}
@@ -203,6 +241,8 @@ export default function App() {
             <SettingsScreen
               onBack={() => setShowSettings(false)}
               onCredentialsCleared={handleCredentialsCleared}
+              zhihuLoginState={zhihuLoginState}
+              onRefreshZhihuLogin={refreshZhihuLogin}
             />
           </div>
         </div>

@@ -5,9 +5,11 @@ import { showAppToast } from '../utils/app-toast'
 interface Props {
   onBack: () => void
   onCredentialsCleared: () => void
+  zhihuLoginState: ZhihuLoginState | null
+  onRefreshZhihuLogin: () => Promise<ZhihuLoginState>
 }
 
-export default function SettingsScreen({ onBack, onCredentialsCleared }: Props) {
+export default function SettingsScreen({ onBack, onCredentialsCleared, zhihuLoginState, onRefreshZhihuLogin }: Props) {
   const [config, setConfig] = useState<AIConfig | null>(null)
   const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
   const [defaultOutputDir, setDefaultOutputDir] = useState('')
@@ -15,6 +17,7 @@ export default function SettingsScreen({ onBack, onCredentialsCleared }: Props) 
   const [cleared, setCleared] = useState(false)
   const [savingOutputDir, setSavingOutputDir] = useState(false)
   const [outputDirMessage, setOutputDirMessage] = useState('')
+  const [zhihuAction, setZhihuAction] = useState<'idle' | 'checking' | 'launching' | 'disconnecting'>('idle')
 
   useEffect(() => {
     window.electronAPI.loadConfig().then(setConfig)
@@ -123,6 +126,44 @@ export default function SettingsScreen({ onBack, onCredentialsCleared }: Props) 
     }
   }
 
+  async function handleConnectZhihu() {
+    setZhihuAction('launching')
+    try {
+      const result = await window.electronAPI.launchEdge()
+      if (!result.success) {
+        showAppToast(result.error || 'Edge 启动失败', 'error')
+        return
+      }
+      await onRefreshZhihuLogin()
+    } catch (e: any) {
+      showAppToast(e.message || '连接失败', 'error')
+    } finally {
+      setZhihuAction('idle')
+    }
+  }
+
+  async function handleDisconnectZhihu() {
+    setZhihuAction('disconnecting')
+    try {
+      await window.electronAPI.killEdgeAndRelaunch()
+      showAppToast('已断开知乎登录（Edge 已重启）', 'info')
+      await onRefreshZhihuLogin()
+    } catch (e: any) {
+      showAppToast(e.message || '断开失败', 'error')
+    } finally {
+      setZhihuAction('idle')
+    }
+  }
+
+  async function handleRefreshZhihuState() {
+    setZhihuAction('checking')
+    try {
+      await onRefreshZhihuLogin()
+    } finally {
+      setZhihuAction('idle')
+    }
+  }
+
   const canCheckUpdates = updateState?.status !== 'checking' && updateState?.status !== 'downloading'
   const canDownloadUpdate = updateState?.status === 'available'
   const canInstallUpdate = updateState?.status === 'downloaded'
@@ -209,6 +250,47 @@ export default function SettingsScreen({ onBack, onCredentialsCleared }: Props) 
           <button className="btn btn-primary btn-sm" onClick={handleInstallUpdate} disabled={!canInstallUpdate}>
             立即安装
           </button>
+        </div>
+      </div>
+
+      {/* Zhihu 登录 */}
+      <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+        <p style={{ fontWeight: 600, fontSize: 14, marginBottom: 'var(--sp-3)', color: 'var(--text-primary)' }}>
+          知乎登录
+        </p>
+        {zhihuLoginState && (
+          <div className="login-state-card" style={{ marginBottom: 'var(--sp-4)' }}>
+            <div className="login-state-card__header">
+              <div>
+                <p className="login-state-card__title">知乎登录状态</p>
+                <p className="login-state-card__hint">
+                  {zhihuLoginState.loggedIn
+                    ? `已登录：${zhihuLoginState.displayName || '未获取昵称'}`
+                    : zhihuLoginState.edgeReady
+                      ? '未登录'
+                      : 'Edge 未连接'}
+                </p>
+              </div>
+              <span className={`status-badge ${zhihuLoginState.loggedIn ? 'status-badge--success' : 'status-badge--warning'}`}>
+                {zhihuLoginState.loggedIn ? '已登录' : '未连接'}
+              </span>
+            </div>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary btn-sm" onClick={handleRefreshZhihuState} disabled={zhihuAction !== 'idle'}>
+            {zhihuAction === 'checking' ? '检测中...' : '刷新状态'}
+          </button>
+          {!zhihuLoginState?.loggedIn && (
+            <button className="btn btn-secondary btn-sm" onClick={handleConnectZhihu} disabled={zhihuAction !== 'idle'}>
+              {zhihuAction === 'launching' ? '启动中...' : '启动 Edge 登录'}
+            </button>
+          )}
+          {zhihuLoginState?.loggedIn && (
+            <button className="btn btn-danger btn-sm" onClick={handleDisconnectZhihu} disabled={zhihuAction !== 'idle'}>
+              {zhihuAction === 'disconnecting' ? '断开中...' : '断开登录'}
+            </button>
+          )}
         </div>
       </div>
 

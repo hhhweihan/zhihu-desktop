@@ -43,6 +43,14 @@ npm run build:win
 
 ### 初次使用
 
+#### 💡 推荐方式：使用 LetAI Code
+
+LetAI Code 提供国内直连的 Claude API 套餐，开箱即用、无需代理、支持多种模型。
+
+👉 **[购买 LetAI Code Token 套餐](https://letaicode.cn/?aff=npZES3)** — 按量计费，新用户有免费额度
+
+#### 使用步骤
+
 1. **启动应用**
    ```bash
    npm run dev    # 开发模式
@@ -50,13 +58,13 @@ npm run build:win
    ```
 
 2. **选择 AI 服务商**
-   - Anthropic（推荐，官方 Claude）
-   - LetAI Code（国内直连，支持 GPT-4o）
-   - 自定义（兼容 OpenAI API 的任何服务）
+   - **LetAI Code**（推荐，国内友好，无代理）
+   - Anthropic（官方，需代理）
+   - 自定义（兼容 OpenAI API）
 
-3. **输入 API Key**
-   - [申请 Anthropic API Key](https://console.anthropic.com/)
-   - [购买 LetAI Code Token](https://letaicode.cn/?aff=npZES3)
+3. **输入 API Token/Key**
+   - LetAI Code：粘贴你的 Token（来自 letaicode.cn）
+   - Anthropic：[申请 API Key](https://console.anthropic.com/)
 
 4. **开始写作**
    ```

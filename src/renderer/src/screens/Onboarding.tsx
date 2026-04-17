@@ -8,17 +8,6 @@ interface Props {
 
 const PROVIDERS = [
   {
-    id: 'anthropic' as const,
-    name: 'Anthropic 官方',
-    defaultModel: 'claude-sonnet-4-6',
-    baseUrl: '',
-    models: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'],
-    keyHint: 'sk-ant-...',
-    keyPrefix: 'sk-ant-',
-    keyLink: 'https://console.anthropic.com/',
-    keyLinkText: '申请 API Key',
-  },
-  {
     id: 'letai' as const,
     name: 'LetAI Code（推荐）',
     defaultModel: 'claude-sonnet-4-6',
@@ -28,6 +17,17 @@ const PROVIDERS = [
     keyPrefix: '',
     keyLink: 'https://letaicode.cn/?aff=npZES3',
     keyLinkText: '购买 Token 套餐',
+  },
+  {
+    id: 'anthropic' as const,
+    name: 'Anthropic 官方',
+    defaultModel: 'claude-sonnet-4-6',
+    baseUrl: '',
+    models: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'],
+    keyHint: 'sk-ant-...',
+    keyPrefix: 'sk-ant-',
+    keyLink: 'https://console.anthropic.com/',
+    keyLinkText: '申请 API Key',
   },
   {
     id: 'custom' as const,

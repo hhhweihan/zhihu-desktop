@@ -19,8 +19,10 @@
 
 ### 系统要求
 
-- Windows 10+ / macOS 10.14+ / Linux (Ubuntu 18.04+)
+- Windows 10+
 - Node.js 18+（仅需源码构建）
+
+> macOS 和 Linux 支持计划中，欢迎贡献。
 
 ### 安装方式
 
@@ -28,9 +30,7 @@
 
 访问 [GitHub Releases](https://github.com/hhhweihan/zhihu-desktop/releases) 下载最新版本：
 
-- **Windows**: `ZhihuWritingAssistant-*.exe`
-- **macOS**: `zhihu-desktop-*.dmg`
-- **Linux**: AppImage（待支持）
+- **Windows**: `ZhihuWritingAssistant-*-setup.exe`
 
 #### 方式二：源码构建
 
@@ -38,9 +38,7 @@
 git clone https://github.com/hhhweihan/zhihu-desktop.git
 cd zhihu-desktop
 npm install
-npm run build:win   # Windows
-npm run build:mac   # macOS
-npm run build:linux # Linux
+npm run build:win
 ```
 
 ### 初次使用
@@ -161,8 +159,8 @@ A: 目前支持：
 ### Q: 可以离线使用吗？
 A: 不能。需要连接互联网与 API 服务通信。
 
-### Q: 支持 macOS M1/M2 吗？
-A: 支持。构建时会自动适配 ARM64 架构。
+### Q: 支持 macOS / Linux 吗？
+A: 暂不支持，计划中。欢迎提 PR 适配。
 
 ### Q: 如何更新应用？
 A: 应用会自动检查更新。也可手动下载最新版本。
@@ -173,8 +171,6 @@ A: 点击应用菜单 → 设置 → 清除 API Key
 ## 📦 发行版
 
 - **Windows**: NSIS 安装器（.exe）
-- **macOS**: DMG 镜像（.dmg，已公证）
-- **Linux**: AppImage（计划中）
 
 ## 🚀 更新日志
 

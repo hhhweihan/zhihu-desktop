@@ -447,7 +447,17 @@ export async function publishArticle(options: PublishArticleOptions): Promise<{ 
   emitLog(options.reporter, 'info', '步骤 1: 启动 Edge 浏览器（CDP 调试模式）')
   await ensureEdgeReady(options.reporter)
 
-  const loginState = await getZhihuLoginState()
+  let loginState: ZhihuLoginState = { edgeReady: false, loggedIn: false }
+  for (let attempt = 0; attempt < 5; attempt++) {
+    loginState = await getZhihuLoginState()
+    if (loginState.loggedIn) break
+    if (loginState.edgeReady && loginState.reason?.includes('无法读取') && attempt < 4) {
+      emitLog(options.reporter, 'info', `等待知乎页面加载...（第 ${attempt + 1} 次检测）`)
+      await sleep(3_000)
+      continue
+    }
+    break
+  }
   if (!loginState.loggedIn) {
     throw createTaskError({
       code: 'ZHIHU_NOT_LOGGED_IN',

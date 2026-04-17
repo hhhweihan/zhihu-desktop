@@ -25,6 +25,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('onboarding')
   const [articleMdPath, setArticleMdPath] = useState('')
   const [articleTitle, setArticleTitle] = useState('')
+  const [articleTopic, setArticleTopic] = useState('')
   const [history, setHistory] = useState<ArticleHistory[]>([])
   const [showEdgeModal, setShowEdgeModal] = useState(false)
   const [pendingPublish, setPendingPublish] = useState(false)
@@ -109,6 +110,7 @@ export default function App() {
   function handleArticleReady(mdPath: string, title: string, topic = '') {
     setArticleMdPath(mdPath)
     setArticleTitle(title)
+    setArticleTopic(topic)
     const entry: ArticleHistory = { id: Date.now().toString(), title, topic, mdPath, createdAt: Date.now() }
     setHistory((prev) => {
       const nextHistory = [entry, ...prev.filter((item) => item.mdPath !== mdPath)]
@@ -129,6 +131,7 @@ export default function App() {
   function handleCredentialsCleared() {
     setArticleMdPath('')
     setArticleTitle('')
+    setArticleTopic('')
     setPendingPublish(false)
     setShowSettings(false)
     setScreen('onboarding')
@@ -178,7 +181,9 @@ export default function App() {
         <ReviewScreen
           mdPath={articleMdPath}
           title={articleTitle}
+          topic={articleTopic}
           onPublish={handleGoPublish}
+          onArticleReady={handleArticleReady}
           onBack={() => setScreen('write')}
         />
       )}

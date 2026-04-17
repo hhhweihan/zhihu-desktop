@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import { launchEdge, isEdgeDebugging } from '../edge-launcher'
+import { launchEdge, isEdgeDebugging, restartEdge } from '../edge-launcher'
 import { convertMarkdownToZhihuHtml } from './zhihu-markdown'
 import { CdpConnection, openPageSession, sleep } from '../../../scripts/vendor/baoyu-chrome-cdp/src/index'
 import { createTaskError, type TaskReporter } from './task-runtime'
@@ -395,22 +395,57 @@ async function clickPublishButton(cdp: CdpConnection, sessionId: string): Promis
   }
 }
 
+async function testEdgeProcess(): Promise<boolean> {
+  try {
+    const wsUrl = await getWebSocketDebuggerUrl()
+    const cdp = await CdpConnection.connect(wsUrl, 2_000)
+    cdp.close()
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function ensureEdgeReady(reporter?: TaskReporter): Promise<void> {
+  const debugging = await isEdgeDebugging()
+
+  if (debugging) {
+    const alive = await testEdgeProcess()
+    if (alive) return
+    emitLog(reporter, 'warning', 'Edge 调试端口无响应，正在自动重启 Edge...')
+    const result = await restartEdge()
+    if (!result.success) {
+      throw createTaskError({
+        code: 'EDGE_LAUNCH_FAILED',
+        task: 'publish',
+        userMessage: result.error || 'Edge 重启失败',
+        retryable: true,
+      })
+    }
+    return
+  }
+
+  const launchResult = await launchEdge()
+  if (launchResult.success) return
+
+  emitLog(reporter, 'warning', '首次启动失败，正在清理残留进程后重试...')
+  const retryResult = await restartEdge()
+  if (!retryResult.success) {
+    throw createTaskError({
+      code: 'EDGE_LAUNCH_FAILED',
+      task: 'publish',
+      userMessage: retryResult.error || 'Edge 启动失败',
+      retryable: true,
+    })
+  }
+}
+
 export async function publishArticle(options: PublishArticleOptions): Promise<{ status: 'filled' | 'published' }> {
   let markdownFile = options.markdownPath
 
   emitStep(options.reporter, 1, '打开知乎编辑器')
   emitLog(options.reporter, 'info', '步骤 1: 启动 Edge 浏览器（CDP 调试模式）')
-  if (!(await isEdgeDebugging())) {
-    const launchResult = await launchEdge()
-    if (!launchResult.success) {
-      throw createTaskError({
-        code: 'EDGE_LAUNCH_FAILED',
-        task: 'publish',
-        userMessage: launchResult.error || 'Edge 启动失败',
-        retryable: true,
-      })
-    }
-  }
+  await ensureEdgeReady(options.reporter)
 
   const loginState = await getZhihuLoginState()
   if (!loginState.loggedIn) {

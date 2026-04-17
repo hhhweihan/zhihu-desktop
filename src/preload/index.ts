@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Edge
   checkEdge: () => ipcRenderer.invoke('edge:check'),
   launchEdge: () => ipcRenderer.invoke('edge:launch'),
+  killEdgeAndRelaunch: () => ipcRenderer.invoke('edge:kill-and-relaunch'),
   getZhihuLoginState: () => ipcRenderer.invoke('edge:zhihu-login-state'),
 
   // App Update
@@ -30,7 +31,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Article
   suggestArticlePlans: (topic: string) => ipcRenderer.invoke('article:suggest-plans', topic),
-  generateArticle: (topic: string, plan?: ArticlePlan) => ipcRenderer.invoke('article:generate', topic, plan),
+  generateArticle: (topic: string, plan?: ArticlePlan, revisionBrief?: string) =>
+    ipcRenderer.invoke('article:generate', topic, plan, revisionBrief),
   cancelGenerate: () => ipcRenderer.invoke('article:cancel'),
   reviewArticle: (mdPath: string) => ipcRenderer.invoke('article:review', mdPath),
   generateArticleCover: (payload: { mdPath: string; template: CoverTemplate; title?: string; subtitle?: string }) =>

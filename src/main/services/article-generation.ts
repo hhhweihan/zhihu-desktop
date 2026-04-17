@@ -16,6 +16,7 @@ export interface GenerateArticleOptions {
   model: string
   baseUrl?: string
   plan?: ArticlePlan
+  revisionBrief?: string
   reporter?: TaskReporter
 }
 
@@ -130,13 +131,30 @@ function buildSuggestionPrompt(topic: string): string {
 }`
 }
 
-function buildUserPrompt(topic: string, plan?: ArticlePlan): string {
+function buildRevisionPrompt(revisionBrief?: string): string {
+  if (!revisionBrief?.trim()) {
+    return ''
+  }
+
+  return `
+
+这次不是首稿，而是基于审核意见的重写版本。请优先修复以下问题：
+${revisionBrief.trim()}
+
+重写要求：
+1. 允许重组结构和改写句式，不要只是局部替换词语。
+2. 明确减少 AI 腔、空泛结论和机械小标题。
+3. 补充更具体的经验、踩坑、取舍或例子，让表达更像真人写作。
+4. 如果原来的论证不够扎实，要补充事实依据或把结论说得更克制。`
+}
+
+function buildUserPrompt(topic: string, plan?: ArticlePlan, revisionBrief?: string): string {
   if (!plan) {
     return `请写一篇关于「${topic}」的知乎技术文章。要求：
 1. 标题要吸引人但不夸张
 2. 有具体的代码示例
 3. 结合实际项目经验
-4. 末尾加：<!-- 话题：技术、编程 -->`
+4. 末尾加：<!-- 话题：技术、编程 -->${buildRevisionPrompt(revisionBrief)}`
   }
 
   return `请基于以下已确认的写作方案，写一篇关于「${topic}」的知乎技术文章。
@@ -151,7 +169,7 @@ ${plan.outline.map((item, index) => `${index + 1}. ${item}`).join('\n')}
 2. 正文要严格围绕上述角度和大纲展开，但可以根据内容自然补充过渡段。
 3. 有具体的代码示例。
 4. 结合实际项目经验，少空话。
-5. 末尾加：<!-- 话题：技术、编程 -->`
+5. 末尾加：<!-- 话题：技术、编程 -->${buildRevisionPrompt(revisionBrief)}`
 }
 
 export async function suggestArticlePlans(options: SuggestArticlePlansOptions): Promise<ArticlePlan[]> {
@@ -198,6 +216,9 @@ export function startArticleGeneration(options: GenerateArticleOptions): Running
     if (options.plan) {
       emitLog(options.reporter, 'info', `已选方案：${options.plan.title}`)
     }
+    if (options.revisionBrief) {
+      emitLog(options.reporter, 'info', '本次将根据审核建议重新生成')
+    }
     emitLog(options.reporter, 'info', '阶段 1/5：整理写作要求')
 
     emitStep(options.reporter, 2, '构建提示词')
@@ -214,7 +235,7 @@ export function startArticleGeneration(options: GenerateArticleOptions): Running
         messages: [
           {
             role: 'user',
-            content: buildUserPrompt(options.topic, options.plan),
+            content: buildUserPrompt(options.topic, options.plan, options.revisionBrief),
           },
         ],
       }),

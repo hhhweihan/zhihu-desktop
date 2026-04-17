@@ -113,6 +113,25 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
     }
   }
 
+  async function handleRestartEdgeAndRetry() {
+    setLaunchingEdge(true)
+    setError('')
+    try {
+      const result = await window.electronAPI.killEdgeAndRelaunch()
+      if (!result.success) {
+        setError(result.error || 'Edge 重启失败，请稍后重试')
+        return
+      }
+
+      await refreshZhihuState()
+      await handlePublish(autoSubmitted)
+    } catch (e: any) {
+      setError(getTaskErrorMessage(e))
+    } finally {
+      setLaunchingEdge(false)
+    }
+  }
+
   async function handlePublish(autoSubmit: boolean) {
     setAutoSubmitted(autoSubmit)
     setStatus('publishing')
@@ -254,10 +273,10 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
         <div className="card">
           <p className="text-error" style={{ marginBottom: 'var(--sp-4)' }}>{error}</p>
           <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
-            <button className="btn btn-secondary" onClick={() => setStatus('idle')}>返回发布页</button>
-            <button className="btn btn-ghost" onClick={handleLaunchEdgeAndRefresh} disabled={launchingEdge}>
-              {launchingEdge ? '启动中...' : '启动 Edge 并检测'}
+            <button className="btn btn-primary" onClick={handleRestartEdgeAndRetry} disabled={launchingEdge}>
+              {launchingEdge ? '重启中...' : '重启 Edge 并重试发布'}
             </button>
+            <button className="btn btn-secondary" onClick={() => setStatus('idle')}>返回发布页</button>
           </div>
         </div>
       )}

@@ -22,13 +22,14 @@ interface Window {
     chooseDirectory: (defaultPath?: string) => Promise<string | null>
     checkEdge: () => Promise<boolean>
     launchEdge: () => Promise<{ success: boolean; error?: string }>
+    killEdgeAndRelaunch: () => Promise<{ success: boolean; error?: string }>
     getZhihuLoginState: () => Promise<ZhihuLoginState>
     getAppUpdateState: () => Promise<AppUpdateState>
     checkForAppUpdates: () => Promise<AppUpdateState>
     downloadAppUpdate: () => Promise<AppUpdateState>
     installAppUpdate: () => Promise<void>
     suggestArticlePlans: (topic: string) => Promise<ArticlePlan[]>
-    generateArticle: (topic: string, plan?: ArticlePlan) => Promise<{ mdPath: string; title: string }>
+    generateArticle: (topic: string, plan?: ArticlePlan, revisionBrief?: string) => Promise<{ mdPath: string; title: string }>
     cancelGenerate: () => Promise<void>
     reviewArticle: (mdPath: string) => Promise<ReviewReport>
     generateArticleCover: (payload: {

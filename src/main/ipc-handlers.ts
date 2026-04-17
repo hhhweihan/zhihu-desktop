@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron'
 import { saveApiKey, loadApiKey, clearApiKey, saveConfig, loadConfig, clearConfig, AIConfig, getDefaultOutputDir } from './secure-storage'
-import { isEdgeDebugging, launchEdge } from './edge-launcher'
+import { isEdgeDebugging, launchEdge, restartEdge } from './edge-launcher'
 import { startArticleGeneration, suggestArticlePlans, type ArticlePlan } from './services/article-generation'
 import { reviewArticle } from './services/article-review'
 import { publishArticle, getZhihuLoginState } from './services/article-publish'
@@ -65,6 +65,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // ── Edge ──────────────────────────────────────────────────
   ipcMain.handle('edge:check', () => isEdgeDebugging())
   ipcMain.handle('edge:launch', () => launchEdge())
+  ipcMain.handle('edge:kill-and-relaunch', () => restartEdge())
   ipcMain.handle('edge:zhihu-login-state', () => getZhihuLoginState())
 
   // ── App Update ────────────────────────────────────────────
@@ -94,7 +95,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
   })
 
-  ipcMain.handle('article:generate', async (_, topic: string, plan?: ArticlePlan) => {
+  ipcMain.handle('article:generate', async (_, topic: string, plan?: ArticlePlan, revisionBrief?: string) => {
     const reporter = createReporter(mainWindow, 'generate')
     return runTaskWithReporter(reporter, async () => {
       const apiKey = loadApiKey()
@@ -110,6 +111,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         model: config.model,
         baseUrl: config.baseUrl,
         plan,
+        revisionBrief,
         reporter,
       })
 

@@ -1,10 +1,13 @@
-import { spawn } from 'node:child_process'
+import { spawn, exec } from 'node:child_process'
 import http from 'node:http'
+import { promisify } from 'node:util'
 
 const CDP_PORT = 9222
 const ZHIHU_ENTRY_URL = 'https://www.zhihu.com/'
 const EDGE_STARTUP_TIMEOUT_MS = 12000
 const EDGE_POLL_INTERVAL_MS = 500
+
+const execAsync = promisify(exec)
 
 const EDGE_PATHS_WIN = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -38,6 +41,34 @@ export async function findEdgePath(): Promise<string | null> {
     if (existsSync(p)) return p
   }
   return null
+}
+
+export async function killEdgeProcesses(): Promise<void> {
+  try {
+    if (process.platform === 'darwin') {
+      await execAsync('pkill -f "Microsoft Edge"')
+    } else {
+      await execAsync('taskkill /IM msedge.exe /F')
+    }
+  } catch {
+    // Process may already be gone — not an error
+  }
+}
+
+async function waitForPortClosed(timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const open = await isEdgeDebugging()
+    if (!open) return true
+    await new Promise((resolve) => setTimeout(resolve, EDGE_POLL_INTERVAL_MS))
+  }
+  return false
+}
+
+export async function restartEdge(): Promise<{ success: boolean; error?: string }> {
+  await killEdgeProcesses()
+  await waitForPortClosed(5000)
+  return launchEdge()
 }
 
 async function waitForEdgeDebugging(timeoutMs: number): Promise<boolean> {
@@ -96,7 +127,7 @@ export async function launchEdge(): Promise<{ success: boolean; error?: string }
 
       resolve({
         success: false,
-        error: 'Edge 已尝试启动，但调试端口未就绪。请先关闭已有 Edge 窗口后重试，或手动打开 Edge 再重试。',
+        error: 'Edge 启动超时，调试端口未就绪。可能是之前的 Edge 进程未完全关闭。请稍后重试。',
       })
     })
   })

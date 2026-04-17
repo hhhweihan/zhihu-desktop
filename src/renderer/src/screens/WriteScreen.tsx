@@ -573,7 +573,14 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
             </div>
           </div>
 
-          {planError && <p className="text-error" style={{ marginTop: 0, marginBottom: 'var(--sp-4)' }}>{planError}</p>}
+          {planError && (
+            <div style={{ marginBottom: 'var(--sp-4)' }}>
+              <p className="text-error" style={{ marginTop: 0, marginBottom: 'var(--sp-3)' }}>{planError}</p>
+              <button className="btn btn-secondary btn-sm" onClick={requestPlanOptions} disabled={loadingPlans}>
+                {loadingPlans ? '重试中...' : '重试获取方案'}
+              </button>
+            </div>
+          )}
 
           {loadingPlans ? (
             <div className="suggestion-empty-state">

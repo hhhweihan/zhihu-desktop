@@ -54,6 +54,7 @@ export default function ReviewScreen({ mdPath, title, onPublish, onBack }: Props
   async function runReview() {
     setLoading(true)
     setError('')
+    setReport(null)
     setLogs([])
     setActiveStep(0)
     try {
@@ -101,7 +102,15 @@ export default function ReviewScreen({ mdPath, title, onPublish, onBack }: Props
         </div>
       )}
 
-      {error && <p className="text-error">{error}</p>}
+      {error && !loading && (
+        <div className="card card-sm" style={{ marginTop: 'var(--sp-4)' }}>
+          <p className="text-error" style={{ marginTop: 0, marginBottom: 'var(--sp-4)' }}>{error}</p>
+          <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+            <button className="btn btn-secondary" onClick={runReview}>重试审核</button>
+            <button className="btn btn-ghost" onClick={onBack}>返回上一页</button>
+          </div>
+        </div>
+      )}
 
       {report && !loading && (
         <div>

@@ -159,11 +159,11 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
       setPlanOptions(nextPlans)
       setSelectedPlanIndex(0)
       setPlanTopic(normalizedTopic)
-    } catch (e: any) {
+    } catch (e: unknown) {
       setPlanOptions([])
       setSelectedPlanIndex(0)
       setPlanTopic('')
-      setPlanError(e.message || '获取标题方案失败')
+      setPlanError(getTaskErrorMessage(e) || '获取标题方案失败')
     } finally {
       setLoadingPlans(false)
     }
@@ -197,7 +197,7 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
       setCoverError('')
       setCoverResult(null)
       setShowPreview(true)
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (!cancelledRef.current) setError(getTaskErrorMessage(e))
     } finally {
       setGenerating(false)
@@ -222,7 +222,7 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
         setCoverTitle(nextTitle)
       }
       onArticleReady(previewMdPath, nextTitle, topic.trim())
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(getTaskErrorMessage(e))
     } finally {
       setSavingPreview(false)
@@ -245,7 +245,7 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
       setCoverTitle(result.title)
       setCoverSubtitle(result.subtitle || '')
       setCoverResult(result)
-    } catch (e: any) {
+    } catch (e: unknown) {
       setCoverError(getTaskErrorMessage(e))
     } finally {
       setGeneratingCover(false)
@@ -264,7 +264,7 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
 
       await window.electronAPI.readFile(entry.mdPath)
       onArticleReady(entry.mdPath, entry.title, entry.topic || topic.trim())
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(getTaskErrorMessage(e) || '历史文章读取失败，请强制重新生成')
     }
   }
@@ -284,7 +284,7 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
       setHistoryPreviewContent('')
       const content = await window.electronAPI.readFile(entry.mdPath)
       setHistoryPreviewContent(content)
-    } catch (e: any) {
+    } catch (e: unknown) {
       setHistoryPreviewError(getTaskErrorMessage(e) || '读取历史文章失败')
     } finally {
       setLoadingHistoryPreview(false)
@@ -304,7 +304,7 @@ export default function WriteScreen({ history, onArticleReady, onDeleteHistory }
         setHistoryPreviewContent('')
         setHistoryPreviewError('')
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(getTaskErrorMessage(e) || '删除历史记录失败')
     }
   }

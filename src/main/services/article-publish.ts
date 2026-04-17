@@ -3,6 +3,18 @@ import { launchEdge, isEdgeDebugging, restartEdge } from '../edge-launcher'
 import { convertMarkdownToZhihuHtml } from './zhihu-markdown'
 import { CdpConnection, openPageSession, sleep } from '../../../scripts/vendor/baoyu-chrome-cdp/src/index'
 import { createTaskError, type TaskReporter } from './task-runtime'
+import { CDP_PORT, ZHIHU_URLS, ZHIHU_SELECTORS } from '../constants'
+
+const CDP_CONNECT_TIMEOUT_MS = 10_000
+const CDP_QUICK_CONNECT_TIMEOUT_MS = 2_000
+const SELECTOR_POLL_INTERVAL_MS = 500
+const SELECTOR_DEFAULT_TIMEOUT_MS = 20_000
+const SELECTOR_FALLBACK_TIMEOUT_MS = 5_000
+const PAGE_NAVIGATE_SETTLE_MS = 2_000
+const EDITOR_KEY_DELAY_MS = 100
+const EDITOR_INPUT_SETTLE_MS = 300
+const EDITOR_DELETE_SETTLE_MS = 200
+const EDITOR_PASTE_SETTLE_MS = 1_000
 
 export interface PublishArticleOptions {
   markdownPath: string
@@ -18,9 +30,6 @@ export interface ZhihuLoginState {
   reason?: string
 }
 
-const ZHIHU_WRITE_URL = 'https://zhuanlan.zhihu.com/write'
-const ZHIHU_HOME_URL = 'https://www.zhihu.com/'
-const CDP_PORT = 9222
 
 interface ChromeTargetInfo {
   targetId: string
@@ -88,7 +97,7 @@ async function runtimeEvaluate<T>(
   return result.result?.value as T
 }
 
-async function waitForSelector(cdp: CdpConnection, sessionId: string, selector: string, timeoutMs = 20_000): Promise<boolean> {
+async function waitForSelector(cdp: CdpConnection, sessionId: string, selector: string, timeoutMs = SELECTOR_DEFAULT_TIMEOUT_MS): Promise<boolean> {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     const found = await runtimeEvaluate<boolean>(
@@ -97,15 +106,15 @@ async function waitForSelector(cdp: CdpConnection, sessionId: string, selector: 
       `!!document.querySelector(${JSON.stringify(selector)})`,
     )
     if (found) return true
-    await sleep(500)
+    await sleep(SELECTOR_POLL_INTERVAL_MS)
   }
   return false
 }
 
 async function waitForEditor(cdp: CdpConnection, sessionId: string): Promise<void> {
-  const titleReady = await waitForSelector(cdp, sessionId, 'textarea[placeholder*="标题"]', 20_000)
+  const titleReady = await waitForSelector(cdp, sessionId, ZHIHU_SELECTORS.title.primary, SELECTOR_DEFAULT_TIMEOUT_MS)
   if (!titleReady) {
-    const altReady = await waitForSelector(cdp, sessionId, '.WriteIndex-titleInput textarea, textarea', 5_000)
+    const altReady = await waitForSelector(cdp, sessionId, ZHIHU_SELECTORS.title.fallback, SELECTOR_FALLBACK_TIMEOUT_MS)
     if (!altReady) {
       throw createTaskError({
         code: 'ZHIHU_EDITOR_NOT_READY',
@@ -168,7 +177,7 @@ async function attachDetectionSession(cdp: CdpConnection): Promise<{
 async function getZhihuAuthCookies(cdp: CdpConnection, sessionId: string): Promise<CookieInfo[]> {
   const result = await cdp.send<{ cookies?: CookieInfo[] }>(
     'Network.getCookies',
-    { urls: [ZHIHU_HOME_URL, ZHIHU_WRITE_URL] },
+    { urls: [ZHIHU_URLS.HOME, ZHIHU_URLS.WRITE] },
     { sessionId },
   )
 
@@ -194,7 +203,7 @@ export async function getZhihuLoginState(): Promise<ZhihuLoginState> {
   }
 
   const wsUrl = await getWebSocketDebuggerUrl()
-  const cdp = await CdpConnection.connect(wsUrl, 10_000)
+  const cdp = await CdpConnection.connect(wsUrl, CDP_CONNECT_TIMEOUT_MS)
 
   try {
     const session = await attachDetectionSession(cdp)
@@ -211,23 +220,16 @@ export async function getZhihuLoginState(): Promise<ZhihuLoginState> {
       const cookies = await getZhihuAuthCookies(cdp, session.sessionId)
       const hasLoginCookie = hasZhihuLoginCookie(cookies)
 
+      const profileSelectors = ZHIHU_SELECTORS.loginProfile
       const state = await runtimeEvaluate<ZhihuLoginState>(
         cdp,
         session.sessionId,
         `(() => {
+          const selectors = ${JSON.stringify(profileSelectors)};
           const currentUrl = location.href;
-          const displayName = (
-            document.querySelector('[data-testid="AppHeader-profile"]')?.textContent
-            || document.querySelector('a[href*="/people/"]')?.textContent
-            || document.querySelector('.AppHeader-profileEntry-name')?.textContent
-            || ''
-          ).trim();
-          const redirectedToSignin = /zhihu\.com\/(signin|signup)/.test(currentUrl);
-          const hasProfileEntry = Boolean(
-            document.querySelector('[data-testid="AppHeader-profile"]')
-            || document.querySelector('a[href*="/people/"]')
-            || document.querySelector('.AppHeader-profileEntry-name')
-          );
+          const displayName = selectors.reduce((name, sel) => name || (document.querySelector(sel)?.textContent || '').trim(), '');
+          const redirectedToSignin = /zhihu\\.com\\/(signin|signup)/.test(currentUrl);
+          const hasProfileEntry = selectors.some(sel => !!document.querySelector(sel));
 
           return {
             edgeReady: true,
@@ -271,9 +273,8 @@ async function sendKeyCombo(cdp: CdpConnection, sessionId: string, key: string, 
 async function fillEditor(cdp: CdpConnection, sessionId: string, title: string, bodyHtml: string): Promise<void> {
   // Step 1: Focus title textarea
   const focusTitle = await runtimeEvaluate<string>(cdp, sessionId, `(() => {
-    const el = document.querySelector('textarea[placeholder*="标题"]')
-      || document.querySelector('.WriteIndex-titleInput textarea')
-      || document.querySelector('textarea');
+    const el = document.querySelector(${JSON.stringify(ZHIHU_SELECTORS.title.primary)})
+      || document.querySelector(${JSON.stringify(ZHIHU_SELECTORS.title.fallback)});
     if (!el) return 'not found';
     el.focus();
     return 'focused';
@@ -290,14 +291,14 @@ async function fillEditor(cdp: CdpConnection, sessionId: string, title: string, 
 
   // Step 2: Ctrl+A to select all, then type title via Input.insertText
   await sendKeyCombo(cdp, sessionId, 'a', 'KeyA', 2)
-  await sleep(100)
+  await sleep(EDITOR_KEY_DELAY_MS)
   await cdp.send('Input.insertText', { text: title }, { sessionId })
-  await sleep(300)
+  await sleep(EDITOR_INPUT_SETTLE_MS)
 
   // Step 3: Focus body editor
   const focusBody = await runtimeEvaluate<string>(cdp, sessionId, `(() => {
-    const el = document.querySelector('.public-DraftEditor-content')
-      || document.querySelector('[contenteditable="true"]');
+    const el = document.querySelector(${JSON.stringify(ZHIHU_SELECTORS.body.primary)})
+      || document.querySelector(${JSON.stringify(ZHIHU_SELECTORS.body.fallback)});
     if (!el) return 'not found';
     el.focus();
     return 'focused';
@@ -311,13 +312,13 @@ async function fillEditor(cdp: CdpConnection, sessionId: string, title: string, 
       retryable: true,
     })
   }
-  await sleep(300)
+  await sleep(EDITOR_INPUT_SETTLE_MS)
 
   // Step 4: Ctrl+A to select all existing content, then Delete
   await sendKeyCombo(cdp, sessionId, 'a', 'KeyA', 2)
-  await sleep(100)
+  await sleep(EDITOR_KEY_DELAY_MS)
   await sendKeyCombo(cdp, sessionId, 'Delete', 'Delete')
-  await sleep(200)
+  await sleep(EDITOR_DELETE_SETTLE_MS)
 
   // Step 5: Paste HTML content via synthetic ClipboardEvent
   const pasteResult = await runtimeEvaluate<string>(cdp, sessionId, `(() => {
@@ -325,8 +326,8 @@ async function fillEditor(cdp: CdpConnection, sessionId: string, title: string, 
     const tmp = document.createElement('div');
     tmp.innerHTML = html.replace(/<[^>]*>/g, '');
     const plainText = tmp.textContent || tmp.innerText || '';
-    const editor = document.querySelector('.public-DraftEditor-content')
-      || document.querySelector('[contenteditable="true"]');
+    const editor = document.querySelector(${JSON.stringify(ZHIHU_SELECTORS.body.primary)})
+      || document.querySelector(${JSON.stringify(ZHIHU_SELECTORS.body.fallback)});
     if (!editor) return 'editor not found';
     const dt = new DataTransfer();
     dt.setData('text/html', html);
@@ -348,7 +349,7 @@ async function fillEditor(cdp: CdpConnection, sessionId: string, title: string, 
       retryable: true,
     })
   }
-  await sleep(1_000)
+  await sleep(EDITOR_PASTE_SETTLE_MS)
 }
 
 async function clickPublishButton(cdp: CdpConnection, sessionId: string): Promise<void> {
@@ -385,7 +386,7 @@ async function clickPublishButton(cdp: CdpConnection, sessionId: string): Promis
 async function testEdgeProcess(): Promise<boolean> {
   try {
     const wsUrl = await getWebSocketDebuggerUrl()
-    const cdp = await CdpConnection.connect(wsUrl, 2_000)
+    const cdp = await CdpConnection.connect(wsUrl, CDP_QUICK_CONNECT_TIMEOUT_MS)
     cdp.close()
     return true
   } catch {
@@ -462,22 +463,22 @@ export async function publishArticle(options: PublishArticleOptions): Promise<{ 
   emitLog(options.reporter, 'info', '步骤 3: 填充标题和正文到知乎编辑器')
 
   const wsUrl = await getWebSocketDebuggerUrl()
-  const cdp = await CdpConnection.connect(wsUrl, 10_000)
+  const cdp = await CdpConnection.connect(wsUrl, CDP_CONNECT_TIMEOUT_MS)
 
   try {
     const page = await openPageSession({
       cdp,
       reusing: false,
-      url: ZHIHU_WRITE_URL,
-      matchTarget: (target) => target.url.startsWith(ZHIHU_WRITE_URL),
+      url: ZHIHU_URLS.WRITE,
+      matchTarget: (target) => target.url.startsWith(ZHIHU_URLS.WRITE),
       enablePage: true,
       enableRuntime: true,
       enableDom: true,
       activateTarget: true,
     })
 
-    await cdp.send('Page.navigate', { url: ZHIHU_WRITE_URL }, { sessionId: page.sessionId })
-    await sleep(2_000)
+    await cdp.send('Page.navigate', { url: ZHIHU_URLS.WRITE }, { sessionId: page.sessionId })
+    await sleep(PAGE_NAVIGATE_SETTLE_MS)
     await waitForEditor(cdp, page.sessionId)
     await fillEditor(cdp, page.sessionId, conversion.title, conversion.bodyHtml)
 

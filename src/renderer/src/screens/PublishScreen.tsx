@@ -7,6 +7,8 @@ import { createLogEntryFromTaskEvent, getTaskErrorMessage, isTaskEventFor } from
 interface Props {
   mdPath: string
   title: string
+  zhihuLoginState: ZhihuLoginState | null
+  onRefreshZhihuLogin: () => Promise<ZhihuLoginState>
   onDone: () => void
   onBack: () => void
 }
@@ -23,14 +25,12 @@ const PUBLISH_STEPS = [
   { label: '完成' },
 ]
 
-export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) {
+export default function PublishScreen({ mdPath, title, zhihuLoginState, onRefreshZhihuLogin, onDone, onBack }: Props) {
   const [status, setStatus] = useState<'idle' | 'publishing' | 'done' | 'error'>('idle')
   const [error, setError] = useState('')
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [autoSubmitted, setAutoSubmitted] = useState(false)
   const [activeStep, setActiveStep] = useState(0)
-  const [zhihuState, setZhihuState] = useState<ZhihuLoginState | null>(null)
-  const [checkingZhihuState, setCheckingZhihuState] = useState(false)
   const [launchingEdge, setLaunchingEdge] = useState(false)
   const [coverFiles, setCoverFiles] = useState<CoverFileState | null>(null)
 
@@ -45,10 +45,6 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
       setLogs((prev) => [...prev.slice(-79), line])
     })
     return off
-  }, [])
-
-  useEffect(() => {
-    void refreshZhihuState()
   }, [])
 
   useEffect(() => {
@@ -76,25 +72,6 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
     })
   }
 
-  async function refreshZhihuState() {
-    setCheckingZhihuState(true)
-    try {
-      const state = await window.electronAPI.getZhihuLoginState()
-      setZhihuState(state)
-      setError('')
-    } catch (e: any) {
-      const message = getTaskErrorMessage(e)
-      setZhihuState({
-        edgeReady: false,
-        loggedIn: false,
-        reason: message,
-      })
-      setError(message)
-    } finally {
-      setCheckingZhihuState(false)
-    }
-  }
-
   async function handleLaunchEdgeAndRefresh() {
     setLaunchingEdge(true)
     setError('')
@@ -105,8 +82,8 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
         return
       }
 
-      await refreshZhihuState()
-    } catch (e: any) {
+      await onRefreshZhihuLogin()
+    } catch (e: unknown) {
       setError(getTaskErrorMessage(e))
     } finally {
       setLaunchingEdge(false)
@@ -123,9 +100,9 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
         return
       }
 
-      await refreshZhihuState()
+      await onRefreshZhihuLogin()
       await handlePublish(autoSubmitted)
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(getTaskErrorMessage(e))
     } finally {
       setLaunchingEdge(false)
@@ -141,7 +118,7 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
     try {
       await window.electronAPI.publishArticle(mdPath, autoSubmit)
       setStatus('done')
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(getTaskErrorMessage(e))
       setStatus('error')
     }
@@ -197,40 +174,38 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
               <div>
                 <p className="login-state-card__title">知乎登录状态</p>
                 <p className="login-state-card__hint">
-                  {checkingZhihuState
-                    ? '检测中...'
-                    : zhihuState?.loggedIn
-                      ? `已同步 Edge 登录态${zhihuState.displayName ? `：${zhihuState.displayName}` : ''}`
-                      : zhihuState?.reason || '尚未检测'}
+                  {zhihuLoginState?.loggedIn
+                    ? `已同步 Edge 登录态${zhihuLoginState.displayName ? `：${zhihuLoginState.displayName}` : ''}`
+                    : zhihuLoginState?.reason || '尚未检测'}
                 </p>
               </div>
-              <span className={`status-badge ${zhihuState?.loggedIn ? 'status-badge--success' : 'status-badge--warning'}`}>
-                {checkingZhihuState ? '检测中' : zhihuState?.loggedIn ? '已登录' : zhihuState?.edgeReady === false ? '未连接 Edge' : '未登录'}
+              <span className={`status-badge ${zhihuLoginState?.loggedIn ? 'status-badge--success' : 'status-badge--warning'}`}>
+                {zhihuLoginState?.loggedIn ? '已登录' : zhihuLoginState?.edgeReady === false ? '未连接 Edge' : '未登录'}
               </span>
             </div>
             <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap', marginTop: 'var(--sp-4)' }}>
-              <button className="btn btn-ghost btn-sm" onClick={refreshZhihuState} disabled={checkingZhihuState}>
+              <button className="btn btn-ghost btn-sm" onClick={() => onRefreshZhihuLogin()} disabled={launchingEdge}>
                 刷新登录状态
               </button>
-              {zhihuState?.edgeReady === false && (
-                <button className="btn btn-secondary btn-sm" onClick={handleLaunchEdgeAndRefresh} disabled={launchingEdge || checkingZhihuState}>
+              {zhihuLoginState?.edgeReady === false && (
+                <button className="btn btn-secondary btn-sm" onClick={handleLaunchEdgeAndRefresh} disabled={launchingEdge}>
                   {launchingEdge ? '启动中...' : '启动 Edge 并检测'}
                 </button>
               )}
-              {!zhihuState?.loggedIn && (
+              {!zhihuLoginState?.loggedIn && (
                 <p className="text-muted" style={{ margin: 0, alignSelf: 'center' }}>
-                  {zhihuState?.edgeReady === false
-                    ? '发布时也会自动拉起 Edge；如果你想先确认登录状态，可以先点“启动 Edge 并检测”。'
+                  {zhihuLoginState?.edgeReady === false
+                    ? '发布时也会自动拉起 Edge；如果你想先确认登录状态，可以先点"启动 Edge 并检测"。'
                     : '请先在 Edge 中登录知乎，再回来点击发布。'}
                 </p>
               )}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 'var(--sp-3)' }}>
-            <button className="btn btn-secondary" onClick={() => handlePublish(false)} disabled={checkingZhihuState || launchingEdge}>
+            <button className="btn btn-secondary" onClick={() => handlePublish(false)} disabled={launchingEdge}>
               填充内容（我来点发布）
             </button>
-            <button className="btn btn-primary" onClick={() => handlePublish(true)} disabled={checkingZhihuState || launchingEdge}>
+            <button className="btn btn-primary" onClick={() => handlePublish(true)} disabled={launchingEdge}>
               自动发布
             </button>
           </div>

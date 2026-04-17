@@ -229,6 +229,8 @@ export default function App() {
         <PublishScreen
           mdPath={articleMdPath}
           title={articleTitle}
+          zhihuLoginState={zhihuLoginState}
+          onRefreshZhihuLogin={refreshZhihuLogin}
           onDone={() => setScreen('write')}
           onBack={() => setScreen('review')}
         />

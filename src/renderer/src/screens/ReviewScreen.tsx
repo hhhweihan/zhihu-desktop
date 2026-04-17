@@ -103,7 +103,7 @@ export default function ReviewScreen({ mdPath, title, topic, onPublish, onArticl
     try {
       const result = await window.electronAPI.reviewArticle(mdPath)
       setReport(result)
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(getTaskErrorMessage(e))
     } finally {
       setLoading(false)
@@ -128,7 +128,7 @@ export default function ReviewScreen({ mdPath, title, topic, onPublish, onArticl
       const result = await window.electronAPI.generateArticle(topic.trim(), undefined, revisionBrief)
       setPendingGeneratedReview(true)
       onArticleReady(result.mdPath, result.title, topic.trim())
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(getTaskErrorMessage(e))
       setLoading(false)
     }

@@ -2,7 +2,36 @@
   "permissions": {
     "allow": [
       "Bash(npm run *)",
-      "Bash(npx -y bun \"C:\\\\Users\\\\12582\\\\.claude\\\\skills\\\\svg-to-png\\\\scripts\\\\convert.ts\" --input build/icon.svg --output build/icon.png --width 512 --height 512)"
+      "Bash(npx -y bun \"C:\\\\Users\\\\12582\\\\.claude\\\\skills\\\\svg-to-png\\\\scripts\\\\convert.ts\" --input build/icon.svg --output build/icon.png --width 512 --height 512)",
+      "Bash(gh release *)",
+      "Bash(node *)",
+      "Bash(convert --version)",
+      "Bash(magick --version)",
+      "Bash(where magick *)",
+      "Bash(where convert *)",
+      "Bash(\"D:/CodeSpace/zhihu-desktop/node_modules/app-builder-bin/win/x64/app-builder.exe\" --help)",
+      "Bash(\"D:/CodeSpace/zhihu-desktop/node_modules/app-builder-bin/win/x64/app-builder.exe\" --help-long)",
+      "Bash(node_modules/app-builder-bin/win/x64/app-builder.exe icon *)",
+      "Bash(npx --yes png-to-ico build/icon.png)",
+      "Bash(CSC_LINK=\"\" CSC_KEY_PASSWORD=\"\" npm run build)",
+      "Bash(electron-builder --win --publish never)",
+      "Bash(CSC_LINK=\"\" CSC_KEY_PASSWORD=\"\" npx electron-builder --win --publish never)",
+      "Bash(CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --win --publish never)",
+      "Bash(\"C:/Users/12582/AppData/Local/electron-builder/Cache/winCodeSign/069987039/rcedit-x64.exe\" --help)",
+      "Bash(ELECTRON_BUILDER_RCEDIT_PATH=\"C:/Users/12582/AppData/Local/electron-builder/Cache/winCodeSign/069987039\" CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --win --publish never)",
+      "Bash(\"D:/CodeSpace/zhihu-desktop/node_modules/app-builder-bin/win/x64/app-builder.exe\" download-artifact *)",
+      "Bash(gh run *)",
+      "Bash(where gh *)",
+      "Bash(cd D:\\\\\\\\CodeSpace\\\\\\\\zhihu-desktop)",
+      "Bash(npx tsc *)",
+      "Bash(find src *)",
+      "Bash(xxd src/renderer/src/screens/PublishScreen.tsx)",
+      "Bash(python -c ' *)",
+      "Bash(sed -i \"s/e\\\\.message || '保存目录失败'/getTaskErrorMessage\\(e\\) || '保存目录失败'/g\" src/renderer/src/screens/SettingsScreen.tsx)",
+      "Bash(sed -i \"s/e\\\\.message || '恢复默认目录失败'/getTaskErrorMessage\\(e\\) || '恢复默认目录失败'/g\" src/renderer/src/screens/SettingsScreen.tsx)",
+      "Bash(sed -i \"s/e\\\\.message || '检查更新失败'/getTaskErrorMessage\\(e\\) || '检查更新失败'/g\" src/renderer/src/screens/SettingsScreen.tsx)",
+      "Bash(sed -i \"s/e\\\\.message || '下载更新失败'/getTaskErrorMessage\\(e\\) || '下载更新失败'/g\" src/renderer/src/screens/SettingsScreen.tsx)",
+      "Bash(sed -i \"s/e\\\\.message || '安装更新失败'/getTaskErrorMessage\\(e\\) || '安装更新失败'/g\" src/renderer/src/screens/SettingsScreen.tsx)"
     ]
   }
 }

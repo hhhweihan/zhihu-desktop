@@ -19,7 +19,7 @@ export default function EdgeSetupModal({ onReady, onClose }: Props) {
       const state = await window.electronAPI.getZhihuLoginState()
       setZhihuState(state)
       setError('')
-    } catch (e: any) {
+    } catch (e: unknown) {
       const message = getTaskErrorMessage(e)
       setZhihuState({
         edgeReady: false,

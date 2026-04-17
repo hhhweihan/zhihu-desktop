@@ -1,6 +1,7 @@
 // src/renderer/src/screens/SettingsScreen.tsx
 import { useState, useEffect } from 'react'
 import { showAppToast } from '../utils/app-toast'
+import { getTaskErrorMessage } from '../utils/task-events'
 
 interface Props {
   onBack: () => void
@@ -74,8 +75,8 @@ export default function SettingsScreen({ onBack, onCredentialsCleared, zhihuLogi
       await window.electronAPI.saveConfig(nextConfig)
       setConfig(nextConfig)
       setOutputDirMessage('已更新文章保存目录')
-    } catch (e: any) {
-      setOutputDirMessage(e.message || '保存目录失败')
+    } catch (e: unknown) {
+      setOutputDirMessage(getTaskErrorMessage(e) || '保存目录失败')
     } finally {
       setSavingOutputDir(false)
     }
@@ -90,8 +91,8 @@ export default function SettingsScreen({ onBack, onCredentialsCleared, zhihuLogi
       await window.electronAPI.saveConfig(nextConfig)
       setConfig(nextConfig)
       setOutputDirMessage('已恢复为默认目录')
-    } catch (e: any) {
-      setOutputDirMessage(e.message || '恢复默认目录失败')
+    } catch (e: unknown) {
+      setOutputDirMessage(getTaskErrorMessage(e) || '恢复默认目录失败')
     } finally {
       setSavingOutputDir(false)
     }
@@ -104,16 +105,16 @@ export default function SettingsScreen({ onBack, onCredentialsCleared, zhihuLogi
       if (nextState.status === 'unsupported') {
         showAppToast(nextState.message, 'warning')
       }
-    } catch (e: any) {
-      showAppToast(e.message || '检查更新失败', 'error')
+    } catch (e: unknown) {
+      showAppToast(getTaskErrorMessage(e) || '检查更新失败', 'error')
     }
   }
 
   async function handleDownloadUpdate() {
     try {
       await window.electronAPI.downloadAppUpdate()
-    } catch (e: any) {
-      showAppToast(e.message || '下载更新失败', 'error')
+    } catch (e: unknown) {
+      showAppToast(getTaskErrorMessage(e) || '下载更新失败', 'error')
     }
   }
 
@@ -121,8 +122,8 @@ export default function SettingsScreen({ onBack, onCredentialsCleared, zhihuLogi
     try {
       showAppToast('应用即将重启并安装更新', 'info')
       await window.electronAPI.installAppUpdate()
-    } catch (e: any) {
-      showAppToast(e.message || '安装更新失败', 'error')
+    } catch (e: unknown) {
+      showAppToast(getTaskErrorMessage(e) || '安装更新失败', 'error')
     }
   }
 
@@ -135,8 +136,8 @@ export default function SettingsScreen({ onBack, onCredentialsCleared, zhihuLogi
         return
       }
       await onRefreshZhihuLogin()
-    } catch (e: any) {
-      showAppToast(e.message || '连接失败', 'error')
+    } catch (e: unknown) {
+      showAppToast(getTaskErrorMessage(e) || '连接失败', 'error')
     } finally {
       setZhihuAction('idle')
     }
@@ -148,8 +149,8 @@ export default function SettingsScreen({ onBack, onCredentialsCleared, zhihuLogi
       await window.electronAPI.killEdgeAndRelaunch()
       showAppToast('已断开知乎登录（Edge 已重启）', 'info')
       await onRefreshZhihuLogin()
-    } catch (e: any) {
-      showAppToast(e.message || '断开失败', 'error')
+    } catch (e: unknown) {
+      showAppToast(getTaskErrorMessage(e) || '断开失败', 'error')
     } finally {
       setZhihuAction('idle')
     }

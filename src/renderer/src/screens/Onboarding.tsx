@@ -1,5 +1,6 @@
 // src/renderer/src/screens/Onboarding.tsx
 import { useState } from 'react'
+import { getTaskErrorMessage } from '../utils/task-events'
 
 interface Props {
   onComplete: () => void
@@ -82,8 +83,8 @@ export default function Onboarding({ onComplete }: Props) {
         outputDir: defaultOutputDir,
       })
       onComplete()
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e: unknown) {
+      setError(getTaskErrorMessage(e))
     } finally {
       setLoading(false)
     }

@@ -1,11 +1,10 @@
 import { spawn, exec } from 'node:child_process'
 import http from 'node:http'
 import { promisify } from 'node:util'
-
-const CDP_PORT = 9222
-const ZHIHU_ENTRY_URL = 'https://www.zhihu.com/'
+import { CDP_PORT, ZHIHU_URLS } from './constants'
 const EDGE_STARTUP_TIMEOUT_MS = 12000
 const EDGE_POLL_INTERVAL_MS = 500
+const EDGE_DEBUG_REQUEST_TIMEOUT_MS = 1500
 
 const execAsync = promisify(exec)
 
@@ -28,7 +27,7 @@ export async function isEdgeDebugging(): Promise<boolean> {
       resolve(res.statusCode === 200)
     })
     req.on('error', () => resolve(false))
-    req.setTimeout(1500, () => {
+    req.setTimeout(EDGE_DEBUG_REQUEST_TIMEOUT_MS, () => {
       req.destroy()
       resolve(false)
     })
@@ -98,7 +97,7 @@ export async function launchEdge(): Promise<{ success: boolean; error?: string }
   return new Promise((resolve) => {
     let settled = false
 
-    const child = spawn(edgePath, [`--remote-debugging-port=${CDP_PORT}`, '--new-window', ZHIHU_ENTRY_URL], {
+    const child = spawn(edgePath, [`--remote-debugging-port=${CDP_PORT}`, '--new-window', ZHIHU_URLS.HOME], {
       detached: true,
       stdio: 'ignore',
     })

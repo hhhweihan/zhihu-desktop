@@ -81,6 +81,15 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
     try {
       const state = await window.electronAPI.getZhihuLoginState()
       setZhihuState(state)
+      setError('')
+    } catch (e: any) {
+      const message = getTaskErrorMessage(e)
+      setZhihuState({
+        edgeReady: false,
+        loggedIn: false,
+        reason: message,
+      })
+      setError(message)
     } finally {
       setCheckingZhihuState(false)
     }

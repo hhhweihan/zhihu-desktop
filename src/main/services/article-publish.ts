@@ -70,8 +70,8 @@ async function runtimeEvaluate<T>(
   cdp: CdpConnection,
   sessionId: string,
   expression: string,
-): Promise<T> {
-  const result = await cdp.send<{ result?: { value?: T } }>(
+): Promise<T | undefined> {
+  const result = await cdp.send<{ result?: { value?: T }; exceptionDetails?: { text?: string } }>(
     'Runtime.evaluate',
     {
       expression,
@@ -80,6 +80,10 @@ async function runtimeEvaluate<T>(
     },
     { sessionId },
   )
+
+  if (result.exceptionDetails) {
+    return undefined
+  }
 
   return result.result?.value as T
 }
@@ -124,6 +128,7 @@ function isInspectablePageTarget(target: ChromeTargetInfo): boolean {
     && !target.url.startsWith('devtools://')
     && !target.url.startsWith('edge://')
     && !target.url.startsWith('chrome://')
+    && (target.url === '' || target.url === 'about:blank' || /^https?:\/\//.test(target.url))
 }
 
 function isZhihuTarget(target: ChromeTargetInfo): boolean {
@@ -232,14 +237,21 @@ export async function getZhihuLoginState(): Promise<ZhihuLoginState> {
         })()`
       )
 
-      const loggedIn = hasLoginCookie || state.loggedIn
+      const resolvedState: ZhihuLoginState = state ?? {
+        edgeReady: true,
+        loggedIn: false,
+        currentUrl: session.currentUrl,
+        reason: '当前 Edge 页签暂时无法读取知乎登录状态，请切到知乎页面后重试',
+      }
+
+      const loggedIn = hasLoginCookie || resolvedState.loggedIn
 
       return {
         edgeReady: true,
         loggedIn,
-        displayName: state.displayName,
-        currentUrl: state.currentUrl || session.currentUrl,
-        reason: loggedIn ? undefined : '未检测到知乎有效登录态，请先在 Edge 中重新登录知乎',
+        displayName: resolvedState.displayName,
+        currentUrl: resolvedState.currentUrl || session.currentUrl,
+        reason: loggedIn ? undefined : resolvedState.reason || '未检测到知乎有效登录态，请先在 Edge 中重新登录知乎',
       }
     } finally {
       await detachSession(cdp, session.sessionId)

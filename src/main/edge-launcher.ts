@@ -1,7 +1,10 @@
-import { execFile } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import http from 'node:http'
 
 const CDP_PORT = 9222
+const ZHIHU_ENTRY_URL = 'https://www.zhihu.com/'
+const EDGE_STARTUP_TIMEOUT_MS = 12000
+const EDGE_POLL_INTERVAL_MS = 500
 
 const EDGE_PATHS_WIN = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -37,6 +40,20 @@ export async function findEdgePath(): Promise<string | null> {
   return null
 }
 
+async function waitForEdgeDebugging(timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    if (await isEdgeDebugging()) {
+      return true
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, EDGE_POLL_INTERVAL_MS))
+  }
+
+  return false
+}
+
 export async function launchEdge(): Promise<{ success: boolean; error?: string }> {
   if (await isEdgeDebugging()) {
     return { success: true }
@@ -48,19 +65,39 @@ export async function launchEdge(): Promise<{ success: boolean; error?: string }
   }
 
   return new Promise((resolve) => {
-    execFile(edgePath, [`--remote-debugging-port=${CDP_PORT}`], (err) => {
-      if (err && !err.message.includes('ENOENT')) {
-        // Edge 进程启动后会立即返回
-      }
+    let settled = false
+
+    const child = spawn(edgePath, [`--remote-debugging-port=${CDP_PORT}`, '--new-window', ZHIHU_ENTRY_URL], {
+      detached: true,
+      stdio: 'ignore',
     })
 
-    setTimeout(async () => {
-      const ok = await isEdgeDebugging()
+    child.on('error', (error) => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      resolve({ success: false, error: `Edge 启动失败：${error.message}` })
+    })
+
+    child.unref()
+
+    void waitForEdgeDebugging(EDGE_STARTUP_TIMEOUT_MS).then((ok) => {
+      if (settled) {
+        return
+      }
+
+      settled = true
       if (ok) {
         resolve({ success: true })
-      } else {
-        resolve({ success: false, error: 'Edge 启动超时，请手动启动 Edge 后重试' })
+        return
       }
-    }, 2000)
+
+      resolve({
+        success: false,
+        error: 'Edge 已尝试启动，但调试端口未就绪。请先关闭已有 Edge 窗口后重试，或手动打开 Edge 再重试。',
+      })
+    })
   })
 }

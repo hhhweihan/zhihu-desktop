@@ -1,5 +1,6 @@
 // src/renderer/src/components/EdgeSetupModal.tsx
 import { useState } from 'react'
+import { getTaskErrorMessage } from '../utils/task-events'
 
 interface Props {
   onReady: () => void
@@ -17,6 +18,15 @@ export default function EdgeSetupModal({ onReady, onClose }: Props) {
     try {
       const state = await window.electronAPI.getZhihuLoginState()
       setZhihuState(state)
+      setError('')
+    } catch (e: any) {
+      const message = getTaskErrorMessage(e)
+      setZhihuState({
+        edgeReady: false,
+        loggedIn: false,
+        reason: message,
+      })
+      setError(message)
     } finally {
       setCheckingZhihuState(false)
     }

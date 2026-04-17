@@ -51,17 +51,20 @@ jobs:
           $repo = '${{ github.event.repository.name }}'
           $targetSha = '${{ github.sha }}'
           $workflowId = 'build.yml'
-          $maxAttempts = 40
+          $maxAttempts = 80
+          $sleepSeconds = 15
+          $run = $null
 
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-            $url = "https://api.github.com/repos/$owner/$repo/actions/workflows/$workflowId/runs?head_sha=$targetSha&per_page=10"
+            $url = "https://api.github.com/repos/$owner/$repo/actions/workflows/$workflowId/runs?branch=master&event=push&head_sha=$targetSha&per_page=100"
             $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Get
             $run = $response.workflow_runs |
               Where-Object { $_.head_sha -eq $targetSha -and $_.event -eq 'push' -and $_.head_branch -eq 'master' } |
+              Sort-Object created_at -Descending |
               Select-Object -First 1
 
             if (-not $run) {
-              Write-Host "[$attempt/$maxAttempts] CI Build run not found yet for $targetSha"
+              Write-Host "[$attempt/$maxAttempts] No CI Build run found yet for $targetSha on master"
             }
             elseif ($run.status -eq 'completed') {
               if ($run.conclusion -ne 'success') {
@@ -70,17 +73,24 @@ jobs:
               }
 
               Write-Host "CI Build completed successfully for $targetSha"
+              Write-Host "Matched CI run: $($run.html_url)"
               "run_id=$($run.id)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
               exit 0
             }
             else {
-              Write-Host "[$attempt/$maxAttempts] CI Build status: $($run.status)"
+              Write-Host "[$attempt/$maxAttempts] CI Build status: $($run.status) ($($run.html_url))"
             }
 
-            Start-Sleep -Seconds 15
+            Start-Sleep -Seconds $sleepSeconds
           }
 
-          Write-Error "Timed out waiting for CI Build to complete for $targetSha"
+          if ($run) {
+            Write-Error "Timed out waiting for CI Build to complete for $targetSha. Last seen status: $($run.status). Run: $($run.html_url)"
+          }
+          else {
+            Write-Error "No CI Build run was found for $targetSha on master. Ensure the tag points to a commit already pushed to master and that the master push triggered CI Build."
+          }
+
           exit 1
 
       - name: Download artifact from CI build

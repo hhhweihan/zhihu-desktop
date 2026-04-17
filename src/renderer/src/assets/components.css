@@ -103,6 +103,9 @@
   margin: 0 auto;
   width: 100%;
 }
+.screen-md {
+  max-width: 860px;
+}
 .screen-wide {
   max-width: 1180px;
 }

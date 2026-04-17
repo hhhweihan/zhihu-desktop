@@ -1,6 +1,6 @@
 {
   "name": "zhihu-desktop",
-  "version": "0.9.11",
+  "version": "1.0.0",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.js",
   "author": "example.com",

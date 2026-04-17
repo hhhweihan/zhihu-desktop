@@ -147,7 +147,7 @@ export default function ReviewScreen({ mdPath, title, topic, onPublish, onArticl
   })
 
   return (
-    <div className="screen">
+    <div className="screen screen-md">
       <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ marginBottom: 'var(--sp-4)' }}>
         ← 返回
       </button>
@@ -158,12 +158,25 @@ export default function ReviewScreen({ mdPath, title, topic, onPublish, onArticl
 
       {loading && (
         <div className="card">
-          <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--sp-4)' }}>{busyLabel}</p>
-          <ProgressSteps steps={reviewSteps} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--sp-4)', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
+            <div>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 4 }}>当前阶段</p>
+              <p style={{ color: 'var(--text-primary)', fontSize: 16, fontWeight: 700 }}>{busyLabel}</p>
+            </div>
+            <p style={{ color: 'var(--text-muted)', fontSize: 12, whiteSpace: 'nowrap' }}>最近 {logs.length} 条日志</p>
+          </div>
+          <div className="activity-grid">
+            <div className="activity-grid__column">
+              <ProgressSteps steps={reviewSteps} />
+            </div>
+            <div className="activity-grid__column">
+              <LogPanel logs={logs} emptyText="等待审核脚本输出日志..." defaultShowImportantOnly maxHeight={300} />
+            </div>
+          </div>
         </div>
       )}
 
-      {(loading || error || logs.length > 0) && (
+      {!loading && logs.length > 0 && (
         <div style={{ marginTop: 'var(--sp-4)' }}>
           <LogPanel logs={logs} title="审核日志" emptyText="等待审核脚本输出日志..." />
         </div>

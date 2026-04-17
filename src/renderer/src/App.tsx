@@ -32,6 +32,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [zhihuLoginState, setZhihuLoginState] = useState<ZhihuLoginState | null>(null)
   const [checkingZhihuState, setCheckingZhihuState] = useState(false)
+  const [disconnectingZhihu, setDisconnectingZhihu] = useState(false)
 
   useEffect(() => {
     let disposed = false
@@ -129,6 +130,16 @@ export default function App() {
     }
   }
 
+  async function handleDisconnectZhihu() {
+    setDisconnectingZhihu(true)
+    try {
+      await window.electronAPI.killEdgeAndRelaunch()
+      await refreshZhihuLogin()
+    } finally {
+      setDisconnectingZhihu(false)
+    }
+  }
+
   function handleArticleReady(mdPath: string, title: string, topic = '') {
     setArticleMdPath(mdPath)
     setArticleTitle(title)
@@ -184,19 +195,31 @@ export default function App() {
       {showSettingsBtn && (
         <div style={{ position: 'fixed', top: 12, right: 16, zIndex: 100, display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
           {zhihuLoginState && (
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={refreshZhihuLogin}
-              disabled={checkingZhihuState}
-              style={{ fontSize: 12, opacity: 0.85 }}
-            >
-              <span className={`status-dot ${zhihuLoginState.loggedIn ? 'status-dot--success' : 'status-dot--warning'}`} />
-              {checkingZhihuState
-                ? '检测中...'
-                : zhihuLoginState.loggedIn
-                  ? `知乎：${zhihuLoginState.displayName || '已登录'}`
-                  : '知乎：未连接'}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={refreshZhihuLogin}
+                disabled={checkingZhihuState}
+                style={{ fontSize: 12, opacity: 0.85 }}
+              >
+                <span className={`status-dot ${zhihuLoginState.loggedIn ? 'status-dot--success' : 'status-dot--warning'}`} />
+                {checkingZhihuState
+                  ? '检测中...'
+                  : zhihuLoginState.loggedIn
+                    ? `知乎：${zhihuLoginState.displayName || '已登录'}`
+                    : '知乎：未连接'}
+              </button>
+              {zhihuLoginState.loggedIn && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={handleDisconnectZhihu}
+                  disabled={disconnectingZhihu}
+                  style={{ fontSize: 12 }}
+                >
+                  {disconnectingZhihu ? '登出中...' : '登出'}
+                </button>
+              )}
+            </div>
           )}
           <button
             className="btn btn-ghost btn-sm"

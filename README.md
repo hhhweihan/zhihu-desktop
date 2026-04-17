@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Version](https://img.shields.io/github/package-json/v/hhhweihan/zhihu-desktop)
 
-> 🚀 用 Claude AI 一键生成、审核、发布知乎专栏文章的桌面工具
+> 🎯 知乎写作完全自动化 — AI 生成 → 智能审核 → 一键发布，无需切换应用
 
 ## ✨ 功能
 

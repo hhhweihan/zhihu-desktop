@@ -7,3 +7,7 @@ dist-electron
 *.log*
 resources/bun.exe
 scripts/node_modules
+docs
+.claude
+OPENSOURCE_PLAN.md
+OPENSOURCE_CHECKLIST.md

@@ -1,6 +1,6 @@
 {
   "name": "zhihu-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "🚀 用 Claude AI 一键生成、审核、发布知乎专栏文章的桌面工具",
   "main": "./out/main/index.js",
   "author": "hhhweihan",

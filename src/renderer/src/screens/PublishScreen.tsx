@@ -31,6 +31,7 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
   const [activeStep, setActiveStep] = useState(0)
   const [zhihuState, setZhihuState] = useState<ZhihuLoginState | null>(null)
   const [checkingZhihuState, setCheckingZhihuState] = useState(false)
+  const [launchingEdge, setLaunchingEdge] = useState(false)
   const [coverFiles, setCoverFiles] = useState<CoverFileState | null>(null)
 
   useEffect(() => {
@@ -85,15 +86,25 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
     }
   }
 
-  async function handlePublish(autoSubmit: boolean) {
-    const latestState = await window.electronAPI.getZhihuLoginState()
-    setZhihuState(latestState)
-    if (!latestState.loggedIn) {
-      setStatus('error')
-      setError(latestState.reason || '知乎未登录，请先在 Edge 中登录知乎后再发布')
-      return
-    }
+  async function handleLaunchEdgeAndRefresh() {
+    setLaunchingEdge(true)
+    setError('')
+    try {
+      const result = await window.electronAPI.launchEdge()
+      if (!result.success) {
+        setError(result.error || 'Edge 启动失败，请稍后重试')
+        return
+      }
 
+      await refreshZhihuState()
+    } catch (e: any) {
+      setError(getTaskErrorMessage(e))
+    } finally {
+      setLaunchingEdge(false)
+    }
+  }
+
+  async function handlePublish(autoSubmit: boolean) {
     setAutoSubmitted(autoSubmit)
     setStatus('publishing')
     setError('')
@@ -173,18 +184,25 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
               <button className="btn btn-ghost btn-sm" onClick={refreshZhihuState} disabled={checkingZhihuState}>
                 刷新登录状态
               </button>
+              {zhihuState?.edgeReady === false && (
+                <button className="btn btn-secondary btn-sm" onClick={handleLaunchEdgeAndRefresh} disabled={launchingEdge || checkingZhihuState}>
+                  {launchingEdge ? '启动中...' : '启动 Edge 并检测'}
+                </button>
+              )}
               {!zhihuState?.loggedIn && (
                 <p className="text-muted" style={{ margin: 0, alignSelf: 'center' }}>
-                  请先在 Edge 中登录知乎，再回来点击发布。
+                  {zhihuState?.edgeReady === false
+                    ? '发布时也会自动拉起 Edge；如果你想先确认登录状态，可以先点“启动 Edge 并检测”。'
+                    : '请先在 Edge 中登录知乎，再回来点击发布。'}
                 </p>
               )}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 'var(--sp-3)' }}>
-            <button className="btn btn-secondary" onClick={() => handlePublish(false)} disabled={checkingZhihuState || !zhihuState?.loggedIn}>
+            <button className="btn btn-secondary" onClick={() => handlePublish(false)} disabled={checkingZhihuState || launchingEdge}>
               填充内容（我来点发布）
             </button>
-            <button className="btn btn-primary" onClick={() => handlePublish(true)} disabled={checkingZhihuState || !zhihuState?.loggedIn}>
+            <button className="btn btn-primary" onClick={() => handlePublish(true)} disabled={checkingZhihuState || launchingEdge}>
               自动发布
             </button>
           </div>
@@ -226,7 +244,12 @@ export default function PublishScreen({ mdPath, title, onDone, onBack }: Props) 
       {status === 'error' && (
         <div className="card">
           <p className="text-error" style={{ marginBottom: 'var(--sp-4)' }}>{error}</p>
-          <button className="btn btn-secondary" onClick={() => setStatus('idle')}>重试</button>
+          <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+            <button className="btn btn-secondary" onClick={() => setStatus('idle')}>返回发布页</button>
+            <button className="btn btn-ghost" onClick={handleLaunchEdgeAndRefresh} disabled={launchingEdge}>
+              {launchingEdge ? '启动中...' : '启动 Edge 并检测'}
+            </button>
+          </div>
         </div>
       )}
     </div>

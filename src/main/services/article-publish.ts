@@ -88,31 +88,33 @@ async function runtimeEvaluate<T>(
   return result.result?.value as T
 }
 
-async function waitForEditor(cdp: CdpConnection, sessionId: string): Promise<void> {
-  for (let attempt = 0; attempt < 40; attempt++) {
-    const ready = await runtimeEvaluate<boolean>(
+async function waitForSelector(cdp: CdpConnection, sessionId: string, selector: string, timeoutMs = 20_000): Promise<boolean> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const found = await runtimeEvaluate<boolean>(
       cdp,
       sessionId,
-      `(() => {
-        const titleEl = document.querySelector('textarea[placeholder*="标题"], input[placeholder*="标题"], textarea, input[type="text"]');
-        const bodyEl = document.querySelector('[contenteditable="true"], .ProseMirror, .public-DraftEditor-content, [role="textbox"]');
-        return Boolean(titleEl && bodyEl);
-      })()`
+      `!!document.querySelector(${JSON.stringify(selector)})`,
     )
-
-    if (ready) {
-      return
-    }
-
+    if (found) return true
     await sleep(500)
   }
+  return false
+}
 
-  throw createTaskError({
-    code: 'ZHIHU_EDITOR_NOT_READY',
-    task: 'publish',
-    userMessage: '知乎编辑器未就绪，请确认已登录知乎且页面已成功打开',
-    retryable: true,
-  })
+async function waitForEditor(cdp: CdpConnection, sessionId: string): Promise<void> {
+  const titleReady = await waitForSelector(cdp, sessionId, 'textarea[placeholder*="标题"]', 20_000)
+  if (!titleReady) {
+    const altReady = await waitForSelector(cdp, sessionId, '.WriteIndex-titleInput textarea, textarea', 5_000)
+    if (!altReady) {
+      throw createTaskError({
+        code: 'ZHIHU_EDITOR_NOT_READY',
+        task: 'publish',
+        userMessage: '知乎编辑器未就绪，请确认已登录知乎且页面已成功打开',
+        retryable: true,
+      })
+    }
+  }
 }
 
 async function detachSession(cdp: CdpConnection, sessionId: string): Promise<void> {
@@ -261,107 +263,92 @@ export async function getZhihuLoginState(): Promise<ZhihuLoginState> {
   }
 }
 
+async function sendKeyCombo(cdp: CdpConnection, sessionId: string, key: string, code: string, modifiers = 0): Promise<void> {
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key, code, modifiers }, { sessionId })
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code }, { sessionId })
+}
+
 async function fillEditor(cdp: CdpConnection, sessionId: string, title: string, bodyHtml: string): Promise<void> {
-  const script = `(() => {
-    const titleValue = ${JSON.stringify(title)};
-    const bodyValue = ${JSON.stringify(bodyHtml)};
+  // Step 1: Focus title textarea
+  const focusTitle = await runtimeEvaluate<string>(cdp, sessionId, `(() => {
+    const el = document.querySelector('textarea[placeholder*="标题"]')
+      || document.querySelector('.WriteIndex-titleInput textarea')
+      || document.querySelector('textarea');
+    if (!el) return 'not found';
+    el.focus();
+    return 'focused';
+  })()`)
 
-    function pickBodyElement() {
-      return document.querySelector('.ProseMirror')
-        || document.querySelector('.public-DraftEditor-content [contenteditable="true"]')
-        || document.querySelector('[contenteditable="true"]')
-        || document.querySelector('[role="textbox"]');
-    }
-
-    function setInputValue(element, nextValue) {
-      const prototype = Object.getPrototypeOf(element);
-      const descriptor = prototype ? Object.getOwnPropertyDescriptor(prototype, 'value') : null;
-      if (descriptor && typeof descriptor.set === 'function') {
-        descriptor.set.call(element, nextValue);
-      } else {
-        element.value = nextValue;
-      }
-    }
-
-    function buildPlainTextFromHtml(html) {
-      const container = document.createElement('div');
-      container.innerHTML = html;
-      return (container.innerText || container.textContent || '').trim();
-    }
-
-    function dispatchPaste(element, html) {
-      const plainText = buildPlainTextFromHtml(html);
-      const data = new DataTransfer();
-      data.setData('text/html', html);
-      data.setData('text/plain', plainText);
-
-      const pasteEvent = new ClipboardEvent('paste', {
-        bubbles: true,
-        cancelable: true,
-      });
-
-      try {
-        Object.defineProperty(pasteEvent, 'clipboardData', {
-          value: data,
-        });
-      } catch {}
-
-      return element.dispatchEvent(pasteEvent);
-    }
-
-    const titleEl = document.querySelector('textarea[placeholder*="标题"], input[placeholder*="标题"], textarea, input[type="text"]');
-    const bodyEl = pickBodyElement();
-
-    if (!titleEl || !bodyEl) {
-      return { ok: false, reason: '未找到标题或正文编辑器' };
-    }
-
-    titleEl.focus();
-    if ('value' in titleEl) {
-      setInputValue(titleEl, titleValue);
-    }
-    titleEl.dispatchEvent(new Event('input', { bubbles: true }));
-    titleEl.dispatchEvent(new Event('change', { bubbles: true }));
-
-    bodyEl.focus();
-
-    const selection = window.getSelection();
-    if (selection) {
-      const range = document.createRange();
-      range.selectNodeContents(bodyEl);
-      range.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(range);
-    }
-
-    document.execCommand('selectAll', false);
-
-    const beforeHtml = (bodyEl.innerHTML || '').trim();
-    const pasteDispatched = dispatchPaste(bodyEl, bodyValue);
-    const afterPasteHtml = (bodyEl.innerHTML || '').trim();
-
-    if (!pasteDispatched || afterPasteHtml === beforeHtml || afterPasteHtml.length === 0) {
-      document.execCommand('insertHTML', false, bodyValue);
-    }
-
-    if ((bodyEl.innerHTML || '').trim().length === 0) {
-      bodyEl.innerHTML = bodyValue;
-    }
-
-    bodyEl.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: null }));
-    bodyEl.dispatchEvent(new Event('change', { bubbles: true }));
-    return { ok: true };
-  })()`
-
-  const result = await runtimeEvaluate<{ ok: boolean; reason?: string }>(cdp, sessionId, script)
-  if (!result?.ok) {
+  if (focusTitle !== 'focused') {
     throw createTaskError({
       code: 'ZHIHU_FILL_FAILED',
       task: 'publish',
-      userMessage: result?.reason || '正文填充失败',
+      userMessage: '未找到标题编辑器',
       retryable: true,
     })
   }
+
+  // Step 2: Ctrl+A to select all, then type title via Input.insertText
+  await sendKeyCombo(cdp, sessionId, 'a', 'KeyA', 2)
+  await sleep(100)
+  await cdp.send('Input.insertText', { text: title }, { sessionId })
+  await sleep(300)
+
+  // Step 3: Focus body editor
+  const focusBody = await runtimeEvaluate<string>(cdp, sessionId, `(() => {
+    const el = document.querySelector('.public-DraftEditor-content')
+      || document.querySelector('[contenteditable="true"]');
+    if (!el) return 'not found';
+    el.focus();
+    return 'focused';
+  })()`)
+
+  if (focusBody !== 'focused') {
+    throw createTaskError({
+      code: 'ZHIHU_FILL_FAILED',
+      task: 'publish',
+      userMessage: '未找到正文编辑器',
+      retryable: true,
+    })
+  }
+  await sleep(300)
+
+  // Step 4: Ctrl+A to select all existing content, then Delete
+  await sendKeyCombo(cdp, sessionId, 'a', 'KeyA', 2)
+  await sleep(100)
+  await sendKeyCombo(cdp, sessionId, 'Delete', 'Delete')
+  await sleep(200)
+
+  // Step 5: Paste HTML content via synthetic ClipboardEvent
+  const pasteResult = await runtimeEvaluate<string>(cdp, sessionId, `(() => {
+    const html = ${JSON.stringify(bodyHtml)};
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html.replace(/<[^>]*>/g, '');
+    const plainText = tmp.textContent || tmp.innerText || '';
+    const editor = document.querySelector('.public-DraftEditor-content')
+      || document.querySelector('[contenteditable="true"]');
+    if (!editor) return 'editor not found';
+    const dt = new DataTransfer();
+    dt.setData('text/html', html);
+    dt.setData('text/plain', plainText);
+    const pasteEvent = new ClipboardEvent('paste', {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: dt,
+    });
+    editor.dispatchEvent(pasteEvent);
+    return 'pasted';
+  })()`)
+
+  if (pasteResult !== 'pasted') {
+    throw createTaskError({
+      code: 'ZHIHU_FILL_FAILED',
+      task: 'publish',
+      userMessage: pasteResult || '正文填充失败',
+      retryable: true,
+    })
+  }
+  await sleep(1_000)
 }
 
 async function clickPublishButton(cdp: CdpConnection, sessionId: string): Promise<void> {
@@ -446,27 +433,7 @@ export async function publishArticle(options: PublishArticleOptions): Promise<{ 
   emitStep(options.reporter, 1, '打开知乎编辑器')
   emitLog(options.reporter, 'info', '步骤 1: 启动 Edge 浏览器（CDP 调试模式）')
   await ensureEdgeReady(options.reporter)
-
-  let loginState: ZhihuLoginState = { edgeReady: false, loggedIn: false }
-  for (let attempt = 0; attempt < 5; attempt++) {
-    loginState = await getZhihuLoginState()
-    if (loginState.loggedIn) break
-    if (loginState.edgeReady && loginState.reason?.includes('无法读取') && attempt < 4) {
-      emitLog(options.reporter, 'info', `等待知乎页面加载...（第 ${attempt + 1} 次检测）`)
-      await sleep(3_000)
-      continue
-    }
-    break
-  }
-  if (!loginState.loggedIn) {
-    throw createTaskError({
-      code: 'ZHIHU_NOT_LOGGED_IN',
-      task: 'publish',
-      userMessage: loginState.reason || '知乎未登录，请先在 Edge 中登录知乎后再发布',
-      retryable: true,
-    })
-  }
-  emitLog(options.reporter, 'success', `知乎登录状态正常${loginState.displayName ? `：${loginState.displayName}` : ''}`)
+  emitLog(options.reporter, 'success', 'Edge 已就绪')
 
   emitStep(options.reporter, 2, '填充文章内容')
   emitLog(options.reporter, 'info', '步骤 2: 转换 Markdown 为 HTML')
@@ -505,11 +472,12 @@ export async function publishArticle(options: PublishArticleOptions): Promise<{ 
       matchTarget: (target) => target.url.startsWith(ZHIHU_WRITE_URL),
       enablePage: true,
       enableRuntime: true,
+      enableDom: true,
       activateTarget: true,
     })
 
     await cdp.send('Page.navigate', { url: ZHIHU_WRITE_URL }, { sessionId: page.sessionId })
-    await sleep(4_000)
+    await sleep(2_000)
     await waitForEditor(cdp, page.sessionId)
     await fillEditor(cdp, page.sessionId, conversion.title, conversion.bodyHtml)
 
